@@ -33,7 +33,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     all_targets = []
     
     # 使用tqdm包装数据加载器，显示进度条
-    for batch in tqdm(dataloader, desc="训练中", leave=False):
+    for batch in tqdm(dataloader, desc="训练中", leave=False, position=1):
         # 获取数据和标签
         images = batch['image'].to(device)
         targets = batch['mos'].to(device)
@@ -74,7 +74,7 @@ def validate_epoch(model, dataloader, criterion, device):
     
     with torch.no_grad():
         # 使用tqdm包装数据加载器，显示进度条
-        for batch in tqdm(dataloader, desc="验证中", leave=False):
+        for batch in tqdm(dataloader, desc="验证中", leave=False, position=1):
             # 获取数据和标签
             images = batch['image'].to(device)
             targets = batch['mos'].to(device)
@@ -231,7 +231,7 @@ def train_distributed(rank, world_size, config):
     best_epoch = 0
     
     # 使用tqdm包装epoch循环，只在主进程中显示进度
-    epoch_iterator = tqdm(range(config.num_epochs), desc="训练进度") if rank == 0 else range(config.num_epochs)
+    epoch_iterator = tqdm(range(config.num_epochs), desc="训练进度", position=0, leave=True) if rank == 0 else range(config.num_epochs)
     for epoch in epoch_iterator:
         # 设置采样器的epoch，确保每个epoch的数据顺序不同
         train_sampler.set_epoch(epoch)

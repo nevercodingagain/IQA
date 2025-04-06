@@ -27,6 +27,7 @@ class Config:
         self.world_size = -1  # 进程数量，-1表示使用所有可用GPU
         self.dist_master_addr = 'localhost'  # 主节点地址
         self.dist_master_port = '12355'  # 主节点端口
+        self.gpu_ids = None  # 指定要使用的GPU ID列表，用于设置CUDA_VISIBLE_DEVICES环境变量
         
         # 训练特定参数
         self.num_epochs = 50  # 训练轮数

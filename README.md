@@ -44,7 +44,7 @@ python main.py --mode train --data_dir /path/to/images --label_file /path/to/lab
 ### 指定GPU进行训练
 
 ```bash
-python main.py --mode train --data_dir /path/to/images --label_file /path/to/labels.txt --gpu_ids "0,1" --world_size 2
+    python main.py --mode train --data_dir /path/to/images --label_file /path/to/labels.txt --gpu_ids "0,1" --world_size 2
 ```
 
 ### 评估模型
