@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 
 from dataset_utils import get_dataloaders
-from models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA
+from model.models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA
 
 
 def evaluate(config):

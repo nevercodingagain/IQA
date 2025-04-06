@@ -14,7 +14,7 @@ from scipy.stats import spearmanr, pearsonr
 from tqdm import tqdm
 
 from dataset_utils import get_dataloaders, KonIQ10kDataset, get_data_transforms
-from models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA
+from model.models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA
 
 # 设置随机种子，确保结果可复现
 def set_seed(seed):
