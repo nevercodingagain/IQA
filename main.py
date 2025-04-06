@@ -29,6 +29,12 @@ def main():
     parser.add_argument('--freeze_backbone', action='store_true', help='是否冻结backbone参数')
     parser.add_argument('--seed', type=int, help='随机种子')
     
+    # 分布式训练参数
+    parser.add_argument('--world_size', type=int, help='分布式训练的进程数量，-1表示使用所有可用GPU')
+    parser.add_argument('--dist_master_addr', type=str, help='分布式训练的主节点地址')
+    parser.add_argument('--dist_master_port', type=str, help='分布式训练的主节点端口')
+    parser.add_argument('--gpu_ids', type=str, help='指定要使用的GPU ID列表，例如"0,1,2"，用于设置CUDA_VISIBLE_DEVICES环境变量')
+    
     # 评估特定参数
     parser.add_argument('--model_path', type=str, help='训练好的模型路径，仅在evaluate模式下需要')
     parser.add_argument('--visualize', action='store_true', help='是否可视化预测结果，仅在evaluate模式下有效')
@@ -53,6 +59,11 @@ def main():
                 config_updates[key] = value
     
     config.update(**config_updates)
+    
+    # 设置CUDA_VISIBLE_DEVICES环境变量（如果指定了gpu_ids）
+    if hasattr(config, 'gpu_ids') and config.gpu_ids:
+        os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu_ids
+        print(f"已设置CUDA_VISIBLE_DEVICES={config.gpu_ids}")
     
     # 检查CUDA可用性
     if config.use_cuda and not torch.cuda.is_available():

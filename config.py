@@ -23,6 +23,11 @@ class Config:
         self.num_workers = 4  # 数据加载的工作线程数
         self.use_cuda = True  # 是否使用CUDA
         
+        # 分布式训练参数
+        self.world_size = -1  # 进程数量，-1表示使用所有可用GPU
+        self.dist_master_addr = 'localhost'  # 主节点地址
+        self.dist_master_port = '12355'  # 主节点端口
+        
         # 训练特定参数
         self.num_epochs = 50  # 训练轮数
         self.learning_rate = 1e-4  # 学习率

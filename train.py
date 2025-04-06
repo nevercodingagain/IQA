@@ -4,12 +4,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 from scipy.stats import spearmanr, pearsonr
 from tqdm import tqdm
 
-from dataset_utils import get_dataloaders
+from dataset_utils import get_dataloaders, KonIQ10kDataset, get_data_transforms
 from models import ViTForIQA, ViTWithAttentionForIQA
 
 # 设置随机种子，确保结果可复现
@@ -97,28 +101,111 @@ def validate_epoch(model, dataloader, criterion, device):
     
     return epoch_loss, srcc, plcc
 
-# 主训练函数
-def train(config):
-    # 设置随机种子
-    set_seed(config.seed)
+# 设置分布式训练环境
+def setup(rank, world_size, config):
+    """初始化分布式训练环境"""
+    os.environ['MASTER_ADDR'] = config.dist_master_addr
+    os.environ['MASTER_PORT'] = config.dist_master_port
     
-    # 设置设备
-    device = torch.device("cuda" if torch.cuda.is_available() and config.use_cuda else "cpu")
-    print(f"使用设备: {device}")
+    # 初始化进程组
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
     
-    # 创建输出目录
-    os.makedirs(config.output_dir, exist_ok=True)
+    # 设置当前设备
+    torch.cuda.set_device(rank)
+
+# 清理分布式训练环境
+def cleanup():
+    """清理分布式训练环境"""
+    dist.destroy_process_group()
+
+# 获取分布式数据加载器
+def get_distributed_dataloaders(rank, world_size, config):
+    """创建分布式数据加载器"""
+    transforms_dict = get_data_transforms()
     
-    # 初始化TensorBoard
-    writer = SummaryWriter(log_dir=os.path.join(config.output_dir, 'logs'))
-    
-    # 获取数据加载器
-    dataloaders = get_dataloaders(
+    # 创建数据集
+    train_dataset = KonIQ10kDataset(
         root_dir=config.data_dir,
         label_file=config.label_file,
-        batch_size=config.batch_size,
-        num_workers=config.num_workers
+        transform=transforms_dict['train'],
+        split='train'
     )
+    
+    val_dataset = KonIQ10kDataset(
+        root_dir=config.data_dir,
+        label_file=config.label_file,
+        transform=transforms_dict['test'],
+        split='val'
+    )
+    
+    test_dataset = KonIQ10kDataset(
+        root_dir=config.data_dir,
+        label_file=config.label_file,
+        transform=transforms_dict['test'],
+        split='test'
+    )
+    
+    # 创建分布式采样器
+    train_sampler = DistributedSampler(
+        train_dataset,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        seed=config.seed
+    )
+    
+    # 创建数据加载器
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,  # 使用DistributedSampler时必须为False
+        num_workers=config.num_workers,
+        pin_memory=True,
+        sampler=train_sampler
+    )
+    
+    # 验证和测试集不需要分布式采样器
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=config.num_workers,
+        pin_memory=True
+    )
+    
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=config.num_workers,
+        pin_memory=True
+    )
+    
+    return {'train': train_loader, 'val': val_loader, 'test': test_loader}, train_sampler
+
+# 分布式训练函数
+def train_distributed(rank, world_size, config):
+    """在单个进程中执行分布式训练"""
+    # 设置随机种子
+    set_seed(config.seed + rank)  # 每个进程使用不同的种子
+    
+    # 设置分布式环境
+    setup(rank, world_size, config)
+    
+    # 设置设备
+    device = torch.device(f"cuda:{rank}")
+    
+    # 创建输出目录
+    if rank == 0:  # 只在主进程中创建目录和初始化TensorBoard
+        os.makedirs(config.output_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=os.path.join(config.output_dir, 'logs'))
+        print(f"使用设备: {device} (主进程)")
+    else:
+        writer = None
+        print(f"使用设备: {device} (进程 {rank})")
+    
+    # 获取分布式数据加载器
+    dataloaders, train_sampler = get_distributed_dataloaders(rank, world_size, config)
     
     # 初始化模型
     if config.model_type == 'vit':
@@ -128,19 +215,27 @@ def train(config):
     else:
         raise ValueError(f"不支持的模型类型: {config.model_type}")
     
+    # 将模型移动到当前设备
     model = model.to(device)
+    
+    # 使用DistributedDataParallel包装模型
+    model = DDP(model, device_ids=[rank])
     
     # 定义损失函数和优化器
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=(rank==0))  # 只在主进程中显示详细信息
     
     # 训练循环
     best_val_srcc = -1.0
     best_epoch = 0
     
-    # 使用tqdm包装epoch循环，显示总体训练进度
-    for epoch in tqdm(range(config.num_epochs), desc="训练进度"):
+    # 使用tqdm包装epoch循环，只在主进程中显示进度
+    epoch_iterator = tqdm(range(config.num_epochs), desc="训练进度") if rank == 0 else range(config.num_epochs)
+    for epoch in epoch_iterator:
+        # 设置采样器的epoch，确保每个epoch的数据顺序不同
+        train_sampler.set_epoch(epoch)
+        
         # 训练
         train_loss, train_srcc, train_plcc = train_epoch(model, dataloaders['train'], criterion, optimizer, device)
         
@@ -150,43 +245,90 @@ def train(config):
         # 更新学习率
         scheduler.step(val_loss)
         
-        # 记录到TensorBoard
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        writer.add_scalar('Loss/val', val_loss, epoch)
-        writer.add_scalar('SRCC/train', train_srcc, epoch)
-        writer.add_scalar('SRCC/val', val_srcc, epoch)
-        writer.add_scalar('PLCC/train', train_plcc, epoch)
-        writer.add_scalar('PLCC/val', val_plcc, epoch)
+        # 只在主进程中记录到TensorBoard和打印进度
+        if rank == 0:
+            # 记录到TensorBoard
+            writer.add_scalar('Loss/train', train_loss, epoch)
+            writer.add_scalar('Loss/val', val_loss, epoch)
+            writer.add_scalar('SRCC/train', train_srcc, epoch)
+            writer.add_scalar('SRCC/val', val_srcc, epoch)
+            writer.add_scalar('PLCC/train', train_plcc, epoch)
+            writer.add_scalar('PLCC/val', val_plcc, epoch)
+            
+            # 打印进度
+            print(f"Epoch {epoch+1}/{config.num_epochs} | "
+                  f"Train Loss: {train_loss:.4f}, SRCC: {train_srcc:.4f}, PLCC: {train_plcc:.4f} | "
+                  f"Val Loss: {val_loss:.4f}, SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}")
+            
+            # 保存最佳模型
+            if val_srcc > best_val_srcc:
+                best_val_srcc = val_srcc
+                best_epoch = epoch
+                # 保存模型时，使用module属性获取原始模型
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.module.state_dict(),  # 注意这里使用module获取原始模型
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'val_srcc': val_srcc,
+                    'val_plcc': val_plcc,
+                }, os.path.join(config.output_dir, 'best_model.pth'))
+                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}")
+    
+    # 只在主进程中进行测试评估
+    if rank == 0:
+        # 加载最佳模型进行测试
+        checkpoint = torch.load(os.path.join(config.output_dir, 'best_model.pth'))
+        # 创建一个非DDP模型用于测试
+        if config.model_type == 'vit':
+            test_model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
+        elif config.model_type == 'vit_attention':
+            test_model = ViTWithAttentionForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
         
-        # 打印进度
-        print(f"Epoch {epoch+1}/{config.num_epochs} | "
-              f"Train Loss: {train_loss:.4f}, SRCC: {train_srcc:.4f}, PLCC: {train_plcc:.4f} | "
-              f"Val Loss: {val_loss:.4f}, SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}")
+        test_model.load_state_dict(checkpoint['model_state_dict'])
+        test_model = test_model.to(device)
         
-        # 保存最佳模型
-        if val_srcc > best_val_srcc:
-            best_val_srcc = val_srcc
-            best_epoch = epoch
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_srcc': val_srcc,
-                'val_plcc': val_plcc,
-            }, os.path.join(config.output_dir, 'best_model.pth'))
-            print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}")
+        # 在测试集上评估
+        test_loss, test_srcc, test_plcc = validate_epoch(test_model, dataloaders['test'], criterion, device)
+        print(f"\n测试结果 (来自第{best_epoch+1}个epoch的最佳模型) | "
+              f"Loss: {test_loss:.4f}, SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}")
+        
+        # 关闭TensorBoard writer
+        writer.close()
     
-    # 加载最佳模型进行测试
-    checkpoint = torch.load(os.path.join(config.output_dir, 'best_model.pth'))
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # 清理分布式环境
+    cleanup()
+
+# 主训练函数
+def train(config):
+    """启动分布式训练"""
+    # 设置随机种子（主进程）
+    set_seed(config.seed)
     
-    # 在测试集上评估
-    test_loss, test_srcc, test_plcc = validate_epoch(model, dataloaders['test'], criterion, device)
-    print(f"\n测试结果 (来自第{best_epoch+1}个epoch的最佳模型) | "
-          f"Loss: {test_loss:.4f}, SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}")
+    # 检查CUDA可用性
+    if not torch.cuda.is_available():
+        print("警告: 没有可用的CUDA设备，无法进行分布式训练")
+        return
     
-    # 关闭TensorBoard writer
-    writer.close()
+    # 获取可用的GPU数量
+    if config.world_size == -1:
+        world_size = torch.cuda.device_count()
+    else:
+        world_size = config.world_size
+    
+    if world_size <= 1:
+        print(f"警告: 只有{world_size}个GPU可用，将使用单GPU训练")
+        # 回退到非分布式训练
+        # 这里可以实现单GPU训练逻辑，或者仍然使用DDP但只有一个进程
+    
+    print(f"启动分布式训练，使用{world_size}个GPU")
+    
+    # 使用spawn启动多个进程
+    mp.spawn(
+        train_distributed,
+        args=(world_size, config),
+        nprocs=world_size,
+        join=True
+    )
 
 # 如果直接运行此脚本，使用默认配置进行训练
 if __name__ == '__main__':

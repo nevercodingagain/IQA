@@ -1,81 +1,70 @@
-# 基于Vision Transformer的图像质量评估(IQA)项目
+# 图像质量评估 (IQA) 项目
 
-本项目使用Vision Transformer (ViT) 模型对图像质量进行评估，使用KonIQ-10k数据集进行训练和评估。
+这是一个基于Vision Transformer (ViT) 的图像质量评估项目，支持单机多GPU分布式训练。
 
-## 项目结构
+## 功能特点
 
-- `dataset_utils.py`: 数据集加载和预处理工具
-- `models.py`: ViT模型定义，包含基础ViT和带注意力机制的ViT两种模型
-- `train.py`: 模型训练脚本
-- `evaluate.py`: 模型评估脚本
-- `main.py`: 主程序入口
+- 基于ViT的图像质量评估模型
+- 支持单GPU和多GPU分布式训练
+- 使用PyTorch DistributedDataParallel (DDP) 实现并行训练
+- 支持KonIQ-10k数据集
 
 ## 环境要求
 
 - Python 3.6+
 - PyTorch 1.7+
 - torchvision
+- transformers
 - numpy
 - pandas
-- matplotlib
-- scikit-learn
 - scipy
+- matplotlib
+- tqdm
 
-## 数据集
+## 安装依赖
 
-本项目使用KonIQ-10k数据集，该数据集包含10,073张带有主观质量评分的自然图像。
-
-数据集结构：
-- 图像文件位于 `dataset/koniq-10k/1024x768/` 目录下
-- 标签文件位于 `data/koniq-10k.txt`
+```bash
+pip install -r requirements.txt
+```
 
 ## 使用方法
 
-### 训练模型
+### 单GPU训练
 
 ```bash
-python main.py --mode train --model_type vit --batch_size 32 --num_epochs 50 --learning_rate 1e-4
+python main.py --mode train --data_dir /path/to/images --label_file /path/to/labels.txt
 ```
 
-可选参数：
-- `--model_type`: 选择模型类型，可选 `vit` 或 `vit_attention`
-- `--freeze_backbone`: 是否冻结backbone参数
-- `--batch_size`: 批大小
-- `--num_epochs`: 训练轮数
-- `--learning_rate`: 学习率
-- `--weight_decay`: 权重衰减
+### 多GPU分布式训练
+
+```bash
+python main.py --mode train --data_dir /path/to/images --label_file /path/to/labels.txt --world_size -1
+```
+
+### 指定GPU进行训练
+
+```bash
+python main.py --mode train --data_dir /path/to/images --label_file /path/to/labels.txt --gpu_ids "0,1" --world_size 2
+```
 
 ### 评估模型
 
 ```bash
-python main.py --mode evaluate --model_type vit --model_path outputs/best_model.pth --visualize
+python main.py --mode evaluate --data_dir /path/to/images --label_file /path/to/labels.txt --model_path /path/to/model.pth
 ```
 
-可选参数：
-- `--model_path`: 训练好的模型路径（必需）
-- `--visualize`: 是否可视化预测结果
+## 分布式训练参数
 
-## 模型说明
+- `--world_size`: 分布式训练的进程数量，-1表示使用所有可用GPU
+- `--dist_master_addr`: 分布式训练的主节点地址，默认为'localhost'
+- `--dist_master_port`: 分布式训练的主节点端口，默认为'12355'
+- `--gpu_ids`: 指定要使用的GPU ID列表，例如"0,1,2"，用于设置CUDA_VISIBLE_DEVICES环境变量
 
-本项目提供两种模型：
+## 注意事项
 
-1. **基础ViT模型 (ViTForIQA)**：使用预训练的ViT-B/16作为特征提取器，添加回归头进行质量评分预测。
-
-2. **带注意力机制的ViT模型 (ViTWithAttentionForIQA)**：在基础ViT模型的基础上添加注意力机制，可以更好地关注图像中与质量相关的区域。
-
-## 评估指标
-
-模型使用以下指标评估性能：
-
-- **SRCC (Spearman Rank Correlation Coefficient)**: 衡量预测分数与真实分数之间的单调关系
-- **PLCC (Pearson Linear Correlation Coefficient)**: 衡量预测分数与真实分数之间的线性关系
-- **RMSE (Root Mean Square Error)**: 衡量预测分数与真实分数之间的误差大小
-
-## 结果可视化
-
-评估时添加 `--visualize` 参数可以生成以下可视化结果：
-
-1. 预测分数与真实分数的散点图
-2. 预测误差分布直方图
-
-这些可视化结果保存在 `results/` 目录下。
+1. 分布式训练需要CUDA支持，请确保您的系统已安装CUDA
+2. 如果只有一个GPU可用，系统会自动回退到单GPU训练模式
+3. 分布式训练时，只有主进程(rank=0)会保存模型和输出日志
+4. 为获得最佳性能，建议将batch_size设置为单GPU batch_size的倍数
+5. 使用`--gpu_ids`参数可以指定要使用的GPU，这将设置CUDA_VISIBLE_DEVICES环境变量
+6. 当使用`--gpu_ids`参数时，`--world_size`参数应该与指定的GPU数量一致
