@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import vit_b_16, ViT_B_16_Weights
+from transformers import ViTModel, ViTConfig
 
 class ViTForIQA(nn.Module):
     """
@@ -19,15 +19,13 @@ class ViTForIQA(nn.Module):
         
         # 加载预训练的ViT模型
         if pretrained:
-            self.vit = vit_b_16(weights=ViT_B_16_Weights.IMAGENET1K_V1)
+            self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
         else:
-            self.vit = vit_b_16()
+            config = ViTConfig()
+            self.vit = ViTModel(config)
         
         # 获取ViT的特征维度
-        vit_hidden_dim = self.vit.heads.head.in_features
-        
-        # 移除分类头
-        self.vit.heads = nn.Identity()
+        vit_hidden_dim = self.vit.config.hidden_size
         
         # 添加IQA回归头
         self.regression_head = nn.Sequential(
@@ -56,7 +54,9 @@ class ViTForIQA(nn.Module):
             torch.Tensor: 预测的图像质量分数，形状为 [batch_size, 1]
         """
         # 提取ViT特征
-        features = self.vit(x)
+        outputs = self.vit(x)
+        # 使用池化后的特征 (CLS token)
+        features = outputs.pooler_output
         
         # 通过回归头预测质量分数
         quality_score = self.regression_head(features)
@@ -80,15 +80,13 @@ class ViTWithAttentionForIQA(nn.Module):
         
         # 加载预训练的ViT模型
         if pretrained:
-            self.vit = vit_b_16(weights=ViT_B_16_Weights.IMAGENET1K_V1)
+            self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
         else:
-            self.vit = vit_b_16()
+            config = ViTConfig()
+            self.vit = ViTModel(config)
         
         # 获取ViT的特征维度
-        vit_hidden_dim = self.vit.heads.head.in_features
-        
-        # 移除分类头
-        self.vit.heads = nn.Identity()
+        vit_hidden_dim = self.vit.config.hidden_size
         
         # 添加注意力层
         self.attention = nn.Sequential(
@@ -124,7 +122,9 @@ class ViTWithAttentionForIQA(nn.Module):
             torch.Tensor: 预测的图像质量分数，形状为 [batch_size, 1]
         """
         # 提取ViT特征
-        features = self.vit(x)
+        outputs = self.vit(x)
+        # 使用池化后的特征 (CLS token)
+        features = outputs.pooler_output
         
         # 应用注意力机制
         attention_weights = F.softmax(self.attention(features), dim=1)
