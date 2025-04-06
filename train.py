@@ -14,7 +14,7 @@ from scipy.stats import spearmanr, pearsonr
 from tqdm import tqdm
 
 from dataset_utils import get_dataloaders, KonIQ10kDataset, get_data_transforms
-from models import ViTForIQA, ViTWithAttentionForIQA
+from models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA
 
 # 设置随机种子，确保结果可复现
 def set_seed(seed):
@@ -208,10 +208,13 @@ def train_distributed(rank, world_size, config):
     dataloaders, train_sampler = get_distributed_dataloaders(rank, world_size, config)
     
     # 初始化模型
+    # 初始化模型
     if config.model_type == 'vit':
         model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
     elif config.model_type == 'vit_attention':
         model = ViTWithAttentionForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
+    elif config.model_type == 'resnet_vit':
+        model = ResNetViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
     else:
         raise ValueError(f"不支持的模型类型: {config.model_type}")
     
@@ -283,6 +286,8 @@ def train_distributed(rank, world_size, config):
             test_model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
         elif config.model_type == 'vit_attention':
             test_model = ViTWithAttentionForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
+        elif config.model_type == 'resnet_vit':
+            test_model = ResNetViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
         
         test_model.load_state_dict(checkpoint['model_state_dict'])
         test_model = test_model.to(device)

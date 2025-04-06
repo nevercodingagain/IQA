@@ -18,7 +18,7 @@ class Config:
         self.data_dir = '../IQA_dataset/koniq10k/1024x768/'  # 图像数据目录
         self.label_file = 'data/koniq-10k.txt'  # 标签文件路径
         self.output_dir = 'outputs'  # 输出目录，用于保存模型和结果
-        self.model_type = 'vit'  # 模型类型: vit或vit_attention
+        self.model_type = 'vit'  # 模型类型: vit、vit_attention或resnet_vit
         self.batch_size = 32  # 批大小
         self.num_workers = 4  # 数据加载的工作线程数
         self.use_cuda = True  # 是否使用CUDA
