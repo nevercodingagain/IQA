@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 from scipy.stats import spearmanr, pearsonr
+from tqdm import tqdm
 
 from dataset_utils import get_dataloaders
 from models import ViTForIQA, ViTWithAttentionForIQA
@@ -27,7 +28,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     all_preds = []
     all_targets = []
     
-    for batch in dataloader:
+    # 使用tqdm包装数据加载器，显示进度条
+    for batch in tqdm(dataloader, desc="训练中", leave=False):
         # 获取数据和标签
         images = batch['image'].to(device)
         targets = batch['mos'].to(device)
@@ -67,7 +69,8 @@ def validate_epoch(model, dataloader, criterion, device):
     all_targets = []
     
     with torch.no_grad():
-        for batch in dataloader:
+        # 使用tqdm包装数据加载器，显示进度条
+        for batch in tqdm(dataloader, desc="验证中", leave=False):
             # 获取数据和标签
             images = batch['image'].to(device)
             targets = batch['mos'].to(device)
@@ -136,7 +139,8 @@ def train(config):
     best_val_srcc = -1.0
     best_epoch = 0
     
-    for epoch in range(config.num_epochs):
+    # 使用tqdm包装epoch循环，显示总体训练进度
+    for epoch in tqdm(range(config.num_epochs), desc="训练进度"):
         # 训练
         train_loss, train_srcc, train_plcc = train_epoch(model, dataloaders['train'], criterion, optimizer, device)
         
