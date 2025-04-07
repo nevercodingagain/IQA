@@ -18,10 +18,12 @@ class Config:
         self.data_dir = '../IQA_dataset/koniq10k/1024x768/'  # 图像数据目录
         self.label_file = 'data/koniq-10k.txt'  # 标签文件路径
         self.output_dir = 'outputs'  # 输出目录，用于保存模型和结果
+        self.experiment_name = 'default'  # 实验名称，用于创建实验目录
         self.model_type = 'vit'  # 模型类型: vit、resnet_vit或resnet_vit_concat
         self.batch_size = 128  # 批大小
         self.num_workers = 12  # 数据加载的工作线程数
         self.use_cuda = True  # 是否使用CUDA
+        self.dataset = 'koniq10k'  # 数据集名称
         
         # 分布式训练参数
         self.world_size = -1  # 进程数量，-1表示使用所有可用GPU
@@ -35,6 +37,7 @@ class Config:
         self.weight_decay = 1e-5  # 权重衰减
         self.freeze_backbone = False  # 是否冻结backbone参数
         self.seed = 42  # 随机种子
+        self.save_frequency = 20  # 模型保存频率，每多少个epoch保存一次带epoch信息的模型
         
         # 评估特定参数
         self.model_path = None  # 训练好的模型路径，仅在evaluate模式下需要

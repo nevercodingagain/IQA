@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 
 from dataset_utils import get_dataloaders
-from model.models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA
+from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA
 
 
 def evaluate(config):
@@ -27,10 +27,10 @@ def evaluate(config):
     # 初始化模型
     if config.model_type == 'vit':
         model = ViTForIQA(pretrained=False)  # 不需要预训练权重，因为会加载训练好的模型
-    elif config.model_type == 'vit_attention':
-        model = ViTWithAttentionForIQA(pretrained=False)
     elif config.model_type == 'resnet_vit':
         model = ResNetViTForIQA(pretrained=False)
+    elif config.model_type == 'resnet_vit_concat':
+        model = ResNetViTConcatForIQA(pretrained=False)
     else:
         raise ValueError(f"不支持的模型类型: {config.model_type}")
     

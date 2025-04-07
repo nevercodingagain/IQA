@@ -29,6 +29,8 @@ def main():
     parser.add_argument('--weight_decay', type=float, help='权重衰减')
     parser.add_argument('--freeze_backbone', action='store_true', help='是否冻结backbone参数')
     parser.add_argument('--seed', type=int, help='随机种子')
+    parser.add_argument('--experiment_name', type=str, help='实验名称，用于创建实验目录')
+    parser.add_argument('--save_frequency', type=int, help='模型保存频率，每多少个epoch保存一次带epoch信息的模型，默认为20')
     
     # 分布式训练参数
     parser.add_argument('--world_size', type=int, help='分布式训练的进程数量，-1表示使用所有可用GPU')

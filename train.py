@@ -1,5 +1,6 @@
 import os
 import time
+import datetime
 import numpy as np
 import torch
 import torch.nn as nn
@@ -204,13 +205,35 @@ def train_distributed(rank, world_size, config):
     # 设置设备
     device = torch.device(f"cuda:{rank}")
     
-    # 创建输出目录
+    # 创建实验输出目录
     if rank == 0:  # 只在主进程中创建目录和初始化TensorBoard
-        os.makedirs(config.output_dir, exist_ok=True)
-        writer = SummaryWriter(log_dir=os.path.join(config.output_dir, 'logs'))
+        # 创建实验名称目录
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        experiment_dir_name = f"{config.experiment_name}_{config.model_type}_{config.dataset}_{config.batch_size}_{timestamp}"
+        experiment_dir = os.path.join(config.output_dir, experiment_dir_name)
+        
+        # 创建子目录
+        logs_dir = os.path.join(experiment_dir, 'logs')
+        models_dir = os.path.join(experiment_dir, 'models')
+        tensorboard_dir = os.path.join(experiment_dir, 'tensorboard')
+        
+        os.makedirs(logs_dir, exist_ok=True)
+        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(tensorboard_dir, exist_ok=True)
+        
+        # 初始化TensorBoard
+        writer = SummaryWriter(log_dir=tensorboard_dir)
+        
+        # 保存当前配置到日志目录
+        with open(os.path.join(logs_dir, 'config.txt'), 'w') as f:
+            f.write(str(config))
+            
         print(f"使用设备: {device} (主进程)")
+        print(f"实验目录: {experiment_dir}")
     else:
         writer = None
+        experiment_dir = None
+        models_dir = None
         print(f"使用设备: {device} (进程 {rank})")
     
     # 获取分布式数据加载器
@@ -279,7 +302,7 @@ def train_distributed(rank, world_size, config):
                 best_val_metric = val_metric  
                 best_epoch = epoch  
                 
-                # 只保存固定名称的模型文件  
+                # 保存最佳模型文件
                 torch.save({  
                     'epoch': epoch,  
                     'model_state_dict': model.module.state_dict(),  
@@ -287,14 +310,26 @@ def train_distributed(rank, world_size, config):
                     'val_srcc': val_srcc,  
                     'val_plcc': val_plcc,  
                     'val_metric': val_metric,  
-                }, os.path.join(config.output_dir, 'best_model.pth'))  
+                }, os.path.join(models_dir, 'best_model.pth'))
                 
                 print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")  
+            
+            # 按照保存频率保存带有epoch信息的模型文件
+            if (epoch + 1) % config.save_frequency == 0:
+                torch.save({  
+                    'epoch': epoch,  
+                    'model_state_dict': model.module.state_dict(),  
+                    'optimizer_state_dict': optimizer.state_dict(),  
+                    'val_srcc': val_srcc,  
+                    'val_plcc': val_plcc,  
+                    'val_metric': val_metric,  
+                }, os.path.join(models_dir, f'model_epoch_{epoch+1}.pth'))  
+                print(f"按照保存频率保存模型，epoch: {epoch+1}")
     
     # 只在主进程中进行测试评估
     if rank == 0:
         # 加载最佳模型进行测试
-        checkpoint = torch.load(os.path.join(config.output_dir, 'best_model.pth'))
+        checkpoint = torch.load(os.path.join(models_dir, 'best_model.pth'))
         # 创建一个非DDP模型用于测试
         if config.model_type == 'vit':  
             test_model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
@@ -313,6 +348,11 @@ def train_distributed(rank, world_size, config):
         
         # 关闭TensorBoard writer
         writer.close()
+        
+        # 记录测试结果到日志文件
+        with open(os.path.join(logs_dir, 'test_results.txt'), 'w') as f:
+            f.write(f"测试结果 (来自第{best_epoch+1}个epoch的最佳模型)\n")
+            f.write(f"Loss: {test_loss:.4f}, SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}\n")
     
     # 清理分布式环境
     cleanup()
