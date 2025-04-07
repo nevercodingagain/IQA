@@ -30,7 +30,7 @@ class Config:
         self.gpu_ids = None  # 指定要使用的GPU ID列表，用于设置CUDA_VISIBLE_DEVICES环境变量
         
         # 训练特定参数
-        self.num_epochs = 50  # 训练轮数
+        self.num_epochs = 100  # 训练轮数
         self.learning_rate = 1e-4  # 学习率
         self.weight_decay = 1e-5  # 权重衰减
         self.freeze_backbone = False  # 是否冻结backbone参数
