@@ -32,6 +32,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     all_preds = []
     all_targets = []
     rank = dist.get_rank()
+    dataset_size = len(dataloader.dataset)
+    
     
     # 只在主进程显示训练进度条
     if rank == 0:
@@ -60,7 +62,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         all_targets.extend(targets.detach().cpu().numpy())
     
     # 计算平均损失
-    epoch_loss = epoch_loss / len(dataloader.dataset)
+    epoch_loss = epoch_loss / dataset_size
     
     # 计算SRCC和PLCC
     srcc, _ = spearmanr(all_targets, all_preds)
@@ -75,6 +77,7 @@ def validate_epoch(model, dataloader, criterion, device):
     all_preds = []
     all_targets = []
     rank = dist.get_rank()
+    dataset_size = len(dataloader.dataset)
     
     with torch.no_grad():
         # 只在主进程显示验证进度条
@@ -99,7 +102,7 @@ def validate_epoch(model, dataloader, criterion, device):
             all_targets.extend(targets.cpu().numpy())
     
     # 计算平均损失
-    epoch_loss = epoch_loss / len(dataloader.dataset)
+    epoch_loss = epoch_loss / dataset_size
     
     # 计算SRCC和PLCC
     srcc, _ = spearmanr(all_targets, all_preds)
