@@ -312,7 +312,13 @@ def train_distributed(rank, world_size, config):
                     'val_metric': val_metric,  
                 }, os.path.join(models_dir, 'best_model.pth'))
                 
-                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")  
+                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")
+                
+                # 记录更好的结果到日志文件（追加模式）
+                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with open(os.path.join(logs_dir, 'test_results.txt'), 'a') as f:
+                    f.write(f"[{current_time}] Epoch {epoch+1}/{config.num_epochs} - 新的最佳结果\n")
+                    f.write(f"验证 SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}\n\n")
             
             # 按照保存频率保存带有epoch信息的模型文件
             if (epoch + 1) % config.save_frequency == 0:
@@ -328,31 +334,17 @@ def train_distributed(rank, world_size, config):
     
     # 只在主进程中进行测试评估
     if rank == 0:
-        # 加载最佳模型进行测试
-        checkpoint = torch.load(os.path.join(models_dir, 'best_model.pth'))
-        # 创建一个非DDP模型用于测试
-        if config.model_type == 'vit':  
-            test_model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
-        elif config.model_type == 'resnet_vit':  
-            test_model = ResNetViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
-        elif config.model_type == 'resnet_vit_concat':  # 新增模型类型  
-            test_model = ResNetViTConcatForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
+        # 在测试集上评估最佳模型
+        print(f"\n训练完成，最佳模型来自第{best_epoch+1}个epoch，验证指标总和: {best_val_metric:.4f}")
         
-        test_model.load_state_dict(checkpoint['model_state_dict'])
-        test_model = test_model.to(device)
-        
-        # 在测试集上评估
-        test_loss, test_srcc, test_plcc = validate_epoch(test_model, dataloaders['test'], criterion, device)
-        print(f"\n测试结果 (来自第{best_epoch+1}个epoch的最佳模型) | "
-              f"Loss: {test_loss:.4f}, SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}")
+        # 记录最终训练结果到日志文件（追加模式）
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(os.path.join(logs_dir, 'test_results.txt'), 'a') as f:
+            f.write(f"\n[{current_time}] 训练完成 - 最佳模型来自第{best_epoch+1}个epoch\n")
+            f.write(f"最终验证指标总和: {best_val_metric:.4f}\n\n")
         
         # 关闭TensorBoard writer
         writer.close()
-        
-        # 记录测试结果到日志文件
-        with open(os.path.join(logs_dir, 'test_results.txt'), 'w') as f:
-            f.write(f"测试结果 (来自第{best_epoch+1}个epoch的最佳模型)\n")
-            f.write(f"Loss: {test_loss:.4f}, SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}\n")
     
     # 清理分布式环境
     cleanup()
