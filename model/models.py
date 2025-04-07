@@ -167,7 +167,7 @@ class ResNetViTForIQA(nn.Module):
             feature_size=feature_size,  # ResNet50输出特征图大小
             num_classes=1,  # 回归任务，输出一个质量分数
             dim=768,  # 特征维度
-            depth=6,  # Transformer深度
+            depth=12,  # Transformer深度
             heads=12,  # 注意力头数
             mlp_dim=3072,  # MLP隐藏层维度
             dropout=0.1,
@@ -199,5 +199,84 @@ class ResNetViTForIQA(nn.Module):
         # 直接将ResNet特征输入到修改后的ViT中
         # 修改后的ViT已经包含了特征投影和质量分数预测
         quality_score = self.vit(resnet_features)
+        
+        return quality_score.squeeze(1)  # 移除最后一个维度，变为 [batch_size]
+    
+    
+class ResNetViTConcatForIQA(nn.Module):  
+    """  
+    结合ResNet50和ViT的图像质量评估模型，通过特征拼接融合两种模型的输出  
+    """  
+    def __init__(self, pretrained=True, freeze_backbone=False):  
+        """  
+        初始化ResNet50+ViT特征拼接IQA模型  
+        
+        参数:  
+            pretrained (bool): 是否使用预训练权重  
+            freeze_backbone (bool): 是否冻结backbone参数  
+        """  
+        super(ResNetViTConcatForIQA, self).__init__()  
+        
+        # 加载预训练的ResNet50模型作为特征提取器  
+        self.resnet = resnet50_backbone()  
+        
+        # 全局平均池化层，用于将ResNet特征图转换为向量  
+        self.global_pool = nn.AdaptiveAvgPool2d(1)  
+        
+        # 加载预训练的ViT模型  
+        if pretrained:  
+            self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')  
+        else:  
+            config = ViTConfig()  
+            self.vit = ViTModel(config)  
+        
+        # 获取特征维度  
+        resnet_dim = 2048  # ResNet50 最后一层输出的通道数  
+        vit_dim = self.vit.config.hidden_size  # ViT 的特征维度 (768)  
+        concat_dim = resnet_dim + vit_dim  # 拼接后的特征维度 (2048+768=2816)  
+        
+        # 特征融合和质量预测层  
+        self.regression_head = nn.Sequential(  
+            nn.Linear(concat_dim, 512),  
+            nn.ReLU(),  
+            nn.Dropout(0.2),  
+            nn.Linear(512, 128),  
+            nn.ReLU(),  
+            nn.Dropout(0.2),  
+            nn.Linear(128, 1)  
+        )  
+        
+        # 如果需要，冻结backbone参数  
+        if freeze_backbone:  
+            for param in self.resnet.parameters():  
+                param.requires_grad = False  
+            for param in self.vit.parameters():  
+                param.requires_grad = False  
+    
+    def forward(self, x):  
+        """  
+        前向传播  
+        
+        参数:  
+            x (torch.Tensor): 输入图像张量，形状为 [batch_size, 3, 224, 224]  
+            
+        返回:  
+            torch.Tensor: 预测的图像质量分数，形状为 [batch_size, 1]  
+        """  
+        # 通过ResNet50提取特征  
+        resnet_features = self.resnet(x)  # [batch_size, 2048, 7, 7]  
+        
+        # 全局池化将特征图转换为向量  
+        resnet_pooled = self.global_pool(resnet_features).squeeze(-1).squeeze(-1)  # [batch_size, 2048]  
+        
+        # 通过ViT提取特征  
+        vit_output = self.vit(x)  
+        vit_features = vit_output.pooler_output  # [batch_size, 768]  
+        
+        # 特征拼接  
+        concat_features = torch.cat([resnet_pooled, vit_features], dim=1)  # [batch_size, 2816]  
+        
+        # 通过回归头预测质量分数  
+        quality_score = self.regression_head(concat_features)  
         
         return quality_score.squeeze(1)  # 移除最后一个维度，变为 [batch_size]

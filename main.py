@@ -16,8 +16,9 @@ def main():
     parser.add_argument('--data_dir', type=str, help='图像数据目录')
     parser.add_argument('--label_file', type=str, help='标签文件路径')
     parser.add_argument('--output_dir', type=str, help='输出目录，用于保存模型和结果')
-    parser.add_argument('--model_type', type=str, choices=['vit', 'vit_attention', 'resnet_vit'],
-                        help='模型类型: vit、vit_attention或resnet_vit')
+    parser.add_argument('--model_type', type=str, 
+                    choices=['vit', 'vit_attention', 'resnet_vit', 'resnet_vit_concat'],
+                    help='模型类型: vit、vit_attention、resnet_vit或resnet_vit_concat')
     parser.add_argument('--batch_size', type=int, help='批大小')
     parser.add_argument('--num_workers', type=int, help='数据加载的工作线程数')
     parser.add_argument('--no_cuda', action='store_true', help='禁用CUDA')
