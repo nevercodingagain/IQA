@@ -276,34 +276,21 @@ def train_distributed(rank, world_size, config):
             val_metric = val_srcc + val_plcc
             
             # 保存最佳模型 - 只在SRCC+PLCC总和超过历史最高时保存
-            if val_metric > best_val_metric:
-                best_val_metric = val_metric
-                best_epoch = epoch
+            if val_metric > best_val_metric:  
+                best_val_metric = val_metric  
+                best_epoch = epoch  
                 
-                # 创建包含指标值的模型文件名
-                model_filename = f"best_model_srcc{val_srcc:.4f}_plcc{val_plcc:.4f}_sum{val_metric:.4f}.pth"
+                # 只保存固定名称的模型文件  
+                torch.save({  
+                    'epoch': epoch,  
+                    'model_state_dict': model.module.state_dict(),  
+                    'optimizer_state_dict': optimizer.state_dict(),  
+                    'val_srcc': val_srcc,  
+                    'val_plcc': val_plcc,  
+                    'val_metric': val_metric,  
+                }, os.path.join(config.output_dir, 'best_model.pth'))  
                 
-                # 保存模型时，使用module属性获取原始模型
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.module.state_dict(),  # 注意这里使用module获取原始模型
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'val_srcc': val_srcc,
-                    'val_plcc': val_plcc,
-                    'val_metric': val_metric,
-                }, os.path.join(config.output_dir, model_filename))
-                
-                # 同时保存一个固定名称的副本，方便测试脚本使用
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.module.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'val_srcc': val_srcc,
-                    'val_plcc': val_plcc,
-                    'val_metric': val_metric,
-                }, os.path.join(config.output_dir, 'best_model.pth'))
-                
-                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")
+                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")  
     
     # 只在主进程中进行测试评估
     if rank == 0:
