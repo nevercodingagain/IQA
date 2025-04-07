@@ -155,37 +155,26 @@ class ResNetViTForIQA(nn.Module):
         # 加载预训练的ResNet50模型作为特征提取器
         self.resnet = resnet50_backbone()
         
-        # 加载预训练的ViT模型
-        if pretrained:
-            self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
-        else:
-            config = ViTConfig()
-            self.vit = ViTModel(config)
+        # 使用自定义的ViT模型，直接接收ResNet特征
+        from model.vit import ViT
         
-        # 获取ViT的特征维度
-        vit_hidden_dim = self.vit.config.hidden_size
-        
-        # ResNet50输出特征图的通道数为2048
+        # ResNet50输出特征图的通道数为2048，特征图大小为7x7
         resnet_out_channels = 2048
+        feature_size = 7  # ResNet50最后一层输出的特征图大小
         
-        # 添加适配层，将ResNet特征转换为ViT可接受的格式
-        self.adapter = nn.Sequential(
-            nn.AdaptiveAvgPool2d((14, 14)),  # 调整特征图大小
-            nn.Conv2d(resnet_out_channels, 768, kernel_size=1, stride=1),  # 调整通道数与ViT匹配
-            nn.Flatten(2),  # 将特征图展平为序列
-            nn.Transpose(1, 2)  # 调整维度顺序以适应ViT输入
+        # 创建ViT模型，直接处理ResNet特征
+        self.vit = ViT(
+            feature_size=feature_size,  # ResNet50输出特征图大小
+            num_classes=1,  # 回归任务，输出一个质量分数
+            dim=768,  # 特征维度
+            depth=6,  # Transformer深度
+            heads=12,  # 注意力头数
+            mlp_dim=3072,  # MLP隐藏层维度
+            dropout=0.1,
+            emb_dropout=0.1
         )
         
-        # 添加IQA回归头
-        self.regression_head = nn.Sequential(
-            nn.Linear(vit_hidden_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(512, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 1)
-        )
+        # 不再需要适配层，因为修改后的ViT可以直接处理ResNet特征
         
         # 如果需要，冻结backbone参数
         if freeze_backbone:
@@ -207,14 +196,8 @@ class ResNetViTForIQA(nn.Module):
         # 通过ResNet50提取特征
         resnet_features = self.resnet(x)  # [batch_size, 2048, 7, 7]
         
-        # 将ResNet特征转换为ViT可接受的格式
-        adapted_features = self.adapter(resnet_features)  # [batch_size, 196, 768]
-        
-        # 通过ViT处理特征
-        vit_outputs = self.vit(inputs_embeds=adapted_features)
-        vit_features = vit_outputs.pooler_output  # [batch_size, 768]
-        
-        # 通过回归头预测质量分数
-        quality_score = self.regression_head(vit_features)
+        # 直接将ResNet特征输入到修改后的ViT中
+        # 修改后的ViT已经包含了特征投影和质量分数预测
+        quality_score = self.vit(resnet_features)
         
         return quality_score.squeeze(1)  # 移除最后一个维度，变为 [batch_size]

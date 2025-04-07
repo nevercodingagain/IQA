@@ -31,9 +31,12 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     epoch_loss = 0.0
     all_preds = []
     all_targets = []
+    rank = dist.get_rank()
     
-    # 使用tqdm包装数据加载器，显示进度条
-    for batch in tqdm(dataloader, desc="训练中", leave=False, position=1):
+    # 只在主进程显示训练进度条
+    if rank == 0:
+        dataloader = tqdm(dataloader, desc="训练中", leave=False, position=1)
+    for batch in dataloader:
         # 获取数据和标签
         images = batch['image'].to(device)
         targets = batch['mos'].to(device)
@@ -71,10 +74,13 @@ def validate_epoch(model, dataloader, criterion, device):
     epoch_loss = 0.0
     all_preds = []
     all_targets = []
+    rank = dist.get_rank()
     
     with torch.no_grad():
-        # 使用tqdm包装数据加载器，显示进度条
-        for batch in tqdm(dataloader, desc="验证中", leave=False, position=1):
+        # 只在主进程显示验证进度条
+        if rank == 0:
+            dataloader = tqdm(dataloader, desc="验证中", leave=False, position=1)
+        for batch in dataloader:
             # 获取数据和标签
             images = batch['image'].to(device)
             targets = batch['mos'].to(device)
@@ -230,7 +236,7 @@ def train_distributed(rank, world_size, config):
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=(rank==0))  # 只在主进程中显示详细信息
     
     # 训练循环
-    best_val_srcc = -1.0
+    best_val_metric = -1.0  # 使用SRCC+PLCC作为最佳模型指标
     best_epoch = 0
     
     # 使用tqdm包装epoch循环，只在主进程中显示进度
@@ -263,10 +269,17 @@ def train_distributed(rank, world_size, config):
                   f"Train Loss: {train_loss:.4f}, SRCC: {train_srcc:.4f}, PLCC: {train_plcc:.4f} | "
                   f"Val Loss: {val_loss:.4f}, SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}")
             
-            # 保存最佳模型
-            if val_srcc > best_val_srcc:
-                best_val_srcc = val_srcc
+            # 计算综合指标(SRCC+PLCC)
+            val_metric = val_srcc + val_plcc
+            
+            # 保存最佳模型 - 只在SRCC+PLCC总和超过历史最高时保存
+            if val_metric > best_val_metric:
+                best_val_metric = val_metric
                 best_epoch = epoch
+                
+                # 创建包含指标值的模型文件名
+                model_filename = f"best_model_srcc{val_srcc:.4f}_plcc{val_plcc:.4f}_sum{val_metric:.4f}.pth"
+                
                 # 保存模型时，使用module属性获取原始模型
                 torch.save({
                     'epoch': epoch,
@@ -274,8 +287,20 @@ def train_distributed(rank, world_size, config):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'val_srcc': val_srcc,
                     'val_plcc': val_plcc,
+                    'val_metric': val_metric,
+                }, os.path.join(config.output_dir, model_filename))
+                
+                # 同时保存一个固定名称的副本，方便测试脚本使用
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.module.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'val_srcc': val_srcc,
+                    'val_plcc': val_plcc,
+                    'val_metric': val_metric,
                 }, os.path.join(config.output_dir, 'best_model.pth'))
-                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}")
+                
+                print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")
     
     # 只在主进程中进行测试评估
     if rank == 0:
