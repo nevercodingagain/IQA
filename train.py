@@ -14,7 +14,7 @@ from scipy.stats import spearmanr, pearsonr
 from tqdm import tqdm
 
 from dataset_utils import get_dataloaders, KonIQ10kDataset, get_data_transforms
-from model.models import ViTForIQA, ViTWithAttentionForIQA, ResNetViTForIQA, ResNetViTConcatForIQA
+from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA
 
 # 设置随机种子，确保结果可复现
 def set_seed(seed):
@@ -219,8 +219,6 @@ def train_distributed(rank, world_size, config):
     # 初始化模型
     if config.model_type == 'vit':  
         model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
-    elif config.model_type == 'vit_attention':  
-        model = ViTWithAttentionForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
     elif config.model_type == 'resnet_vit':  
         model = ResNetViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
     elif config.model_type == 'resnet_vit_concat':  # 新增模型类型  
@@ -300,8 +298,6 @@ def train_distributed(rank, world_size, config):
         # 创建一个非DDP模型用于测试
         if config.model_type == 'vit':  
             test_model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
-        elif config.model_type == 'vit_attention':  
-            test_model = ViTWithAttentionForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
         elif config.model_type == 'resnet_vit':  
             test_model = ResNetViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
         elif config.model_type == 'resnet_vit_concat':  # 新增模型类型  
