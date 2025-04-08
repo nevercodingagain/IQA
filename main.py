@@ -8,7 +8,7 @@ from tqdm import tqdm
 from evaluate import evaluate  
 from config import get_train_config, get_eval_config  
 from dataset_utils import get_data_transforms, KonIQ10kDataset  
-from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA  
+from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA, SwinForIQA
 from train import train_epoch, validate_epoch  
 
 def main():  
@@ -26,8 +26,8 @@ def main():
     parser.add_argument('--label_file', type=str, help='标签文件路径')  
     parser.add_argument('--output_dir', type=str, help='输出目录，用于保存模型和结果')  
     parser.add_argument('--model_type', type=str,   
-                    choices=['vit', 'resnet_vit', 'resnet_vit_concat'],  
-                    help='模型类型: vit、resnet_vit或resnet_vit_concat')  
+                    choices=['vit', 'resnet_vit', 'resnet_vit_concat', 'swin'],  
+                    help='模型类型: vit、resnet_vit、resnet_vit_concat或swin')  
     parser.add_argument('--batch_size', type=int, help='批大小')  
     parser.add_argument('--num_workers', type=int, help='数据加载的工作线程数')  
     parser.add_argument('--no_cuda', action='store_true', help='禁用CUDA')  
@@ -182,7 +182,13 @@ def main():
         elif config.model_type == 'resnet_vit':  
             model = ResNetViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
         elif config.model_type == 'resnet_vit_concat':  
-            model = ResNetViTConcatForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
+            model = ResNetViTConcatForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)
+        elif config.model_type == 'swin':  
+            model = SwinForIQA(  
+                pretrained=True,   
+                freeze_backbone=config.freeze_backbone,  
+                model_size=getattr(config, 'swin_size', 'tiny')  # 允许通过配置选择模型大小  
+            )  
         else:  
             raise ValueError(f"不支持的模型类型: {config.model_type}")  
         

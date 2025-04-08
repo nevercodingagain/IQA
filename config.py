@@ -19,7 +19,8 @@ class Config:
         self.label_file = 'data/koniq-10k.txt'  # 标签文件路径
         self.output_dir = 'outputs'  # 输出目录，用于保存模型和结果
         self.experiment_name = 'default'  # 实验名称，用于创建实验目录
-        self.model_type = 'vit'  # 模型类型: vit、resnet_vit或resnet_vit_concat
+        self.model_type = 'vit'  # 模型类型: vit、resnet_vit、resnet_vit_concat、swin
+        self.swin_size = 'tiny'  # Swin模型大小: tiny, small, base, large  
         self.batch_size = 128  # 批大小
         self.num_workers = 12  # 数据加载的工作线程数
         self.use_cuda = True  # 是否使用CUDA

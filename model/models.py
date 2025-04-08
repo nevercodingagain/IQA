@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import ViTModel, ViTConfig
+from transformers import SwinModel, SwinConfig
 from model.resnet import resnet50_backbone
 
 
@@ -208,3 +209,76 @@ class ResNetViTConcatForIQA(nn.Module):
         quality_score = self.regression_head(concat_features)  
         
         return quality_score.squeeze(1)  # 移除最后一个维度，变为 [batch_size]
+
+
+class SwinForIQA(nn.Module):  
+    """  
+    基于Swin Transformer的图像质量评估模型  
+    """  
+    def __init__(self, pretrained=True, freeze_backbone=False, model_size='tiny'):  
+        """  
+        初始化Swin Transformer IQA模型  
+        
+        参数:  
+            pretrained (bool): 是否使用预训练权重  
+            freeze_backbone (bool): 是否冻结backbone参数  
+            model_size (str): 模型大小，可选'tiny', 'small', 'base', 'large'  
+        """  
+        super(SwinForIQA, self).__init__()  
+        
+        # 根据size选择合适的预训练模型  
+        model_variants = {  
+            'tiny': 'microsoft/swin-tiny-patch4-window7-224',  
+            'small': 'microsoft/swin-small-patch4-window7-224',   
+            'base': 'microsoft/swin-base-patch4-window7-224',  
+            'large': 'microsoft/swin-large-patch4-window7-224'  
+        }  
+        
+        model_name = model_variants.get(model_size, model_variants['tiny'])  
+        
+        # 加载预训练的Swin模型  
+        if pretrained:  
+            self.swin = SwinModel.from_pretrained(model_name)  
+        else:  
+            config = SwinConfig.from_pretrained(model_name)  
+            self.swin = SwinModel(config)  
+        
+        # 获取Swin的特征维度  
+        swin_hidden_dim = self.swin.config.hidden_size  
+        
+        # 添加IQA回归头  
+        self.regression_head = nn.Sequential(  
+            nn.Linear(swin_hidden_dim, 512),  
+            nn.ReLU(),  
+            nn.Dropout(0.2),  
+            nn.Linear(512, 128),  
+            nn.ReLU(),  
+            nn.Dropout(0.2),  
+            nn.Linear(128, 1)  
+        )  
+        
+        # 如果需要，冻结backbone参数  
+        if freeze_backbone:  
+            for param in self.swin.parameters():  
+                param.requires_grad = False  
+    
+    def forward(self, x):  
+        """  
+        前向传播  
+        
+        参数:  
+            x (torch.Tensor): 输入图像张量，形状为 [batch_size, 3, 224, 224]  
+                
+        返回:  
+            torch.Tensor: 预测的图像质量分数，形状为 [batch_size]  
+        """  
+        # 提取Swin特征  
+        outputs = self.swin(pixel_values=x)  
+        
+        # 获取pooled输出  
+        features = outputs.pooler_output  
+        
+        # 通过回归头预测质量分数  
+        quality_score = self.regression_head(features)  
+        
+        return quality_score.squeeze(1)  

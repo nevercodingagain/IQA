@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 
 from dataset_utils import get_dataloaders
-from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA
+from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA, SwinForIQA
 
 
 def evaluate(config):
@@ -31,6 +31,12 @@ def evaluate(config):
         model = ResNetViTForIQA(pretrained=False)
     elif config.model_type == 'resnet_vit_concat':
         model = ResNetViTConcatForIQA(pretrained=False)
+    elif config.model_type == 'swin':  
+            model = SwinForIQA(  
+                pretrained=True,   
+                freeze_backbone=config.freeze_backbone,  
+                model_size=getattr(config, 'swin_size', 'tiny')  # 允许通过配置选择模型大小  
+            )  
     else:
         raise ValueError(f"不支持的模型类型: {config.model_type}")
     
