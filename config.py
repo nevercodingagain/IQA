@@ -26,6 +26,7 @@ class Config:
         self.dataset = 'koniq10k'  # 数据集名称
         
         # 分布式训练参数
+        self.local_rank = -1  # 本地进程序号，由torchrun设置
         self.world_size = -1  # 进程数量，-1表示使用所有可用GPU
         self.dist_master_addr = 'localhost'  # 主节点地址
         self.dist_master_port = '12355'  # 主节点端口
