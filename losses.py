@@ -32,52 +32,57 @@ class AdaptiveBoundaryRankingLoss(nn.Module):
         self.gamma = gamma  # 非线性调整因子
     
     def forward(self, pred, target):
+        # 获取批次大小
         batch_size = pred.size(0)
         if batch_size <= 1:
             return torch.tensor(0.0, device=pred.device)
         
-        # 计算所有可能的图像对数量
-        K = batch_size * (batch_size - 1) // 2
+        # 展平预测和真实分数
+        pred = pred.view(-1)
+        target = target.view(-1)
         
-        # 初始化损失
-        loss = 0.0
+        # 创建所有预测分数对的差异矩阵
+        pred_diff = pred.unsqueeze(0) - pred.unsqueeze(1)  # [batch_size, batch_size]
         
-        # 计算所有图像对的损失
-        for i in range(batch_size):
-            for j in range(i+1, batch_size):
-                # 获取真实质量分数和预测分数
-                y_i, y_j = target[i], target[j]
-                y_pred_i, y_pred_j = pred[i], pred[j]
-                
-                # 计算真实质量分数差异的绝对值
-                y_diff_abs = torch.abs(y_i - y_j)
-                
-                # 计算自适应边界因子 λ = β / (1 + γ * |y_i - y_j|)
-                lambda_factor = self.beta / (1 + self.gamma * y_diff_abs)
-                
-                # 计算边界项
-                boundary = lambda_factor * y_diff_abs
-                
-                # 计算排序方向项
-                sign_term = torch.sign(y_i - y_j)
-                pred_diff = (y_pred_i - y_pred_j) * sign_term
-                
-                # 计算hinge损失
-                pair_loss = torch.max(torch.tensor(0.0, device=pred.device), boundary - pred_diff)
-                
-                # 累加损失
-                loss += pair_loss
+        # 创建所有真实分数对的差异矩阵
+        true_diff = target.unsqueeze(0) - target.unsqueeze(1)  # [batch_size, batch_size]
         
-        # 归一化损失
-        loss = loss / K
+        # 计算真实分数差异的绝对值
+        abs_true_diff = torch.abs(true_diff)
         
+        # 计算自适应边界系数 λ = β / (1 + γ * |y_i - y_j|)
+        lambda_values = self.beta / (1 + self.gamma * abs_true_diff)
+        
+        # 计算每对的边界大小
+        margins = lambda_values * abs_true_diff
+        
+        # 计算排序方向的符号
+        sign_true_diff = torch.sign(true_diff)
+        
+        # 计算预测差异与正确排序方向的乘积
+        pred_diff_signed = pred_diff * sign_true_diff
+        
+        # 应用hinge损失: max(0, margin - pred_diff_signed)
+        hinge_loss = F.relu(margins - pred_diff_signed)
+        
+        # 创建掩码，排除对角线和重复对
+        mask = torch.ones_like(hinge_loss, device=pred.device) - torch.eye(batch_size, device=pred.device)
+        mask = torch.triu(mask, diagonal=1)  # 只取上三角矩阵
+        
+        # 应用掩码并求和
+        valid_pairs = torch.sum(mask)
+        if valid_pairs > 0:
+            loss = torch.sum(hinge_loss * mask) / valid_pairs
+        else:
+            loss = torch.tensor(0.0, device=pred.device)
+            
         return loss
 
 class CombinedLoss(nn.Module):
     """
     结合MSE损失和自适应边界排序损失的组合损失函数
     """
-    def __init__(self, mse_weight=1.0, rank_weight=1.0, beta=0.3, gamma=0.1):
+    def __init__(self, mse_weight=1.0, rank_weight=0.2, beta=0.3, gamma=0.1):
         super(CombinedLoss, self).__init__()
         self.mse_loss = MSELoss()
         self.rank_loss = AdaptiveBoundaryRankingLoss(beta=beta, gamma=gamma)

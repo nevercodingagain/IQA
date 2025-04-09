@@ -45,7 +45,7 @@ def main():
     parser.add_argument('--visualize', action='store_true', help='是否可视化预测结果，仅在evaluate模式下有效')  
     # 自适应边界排序损失函数相关参数
     parser.add_argument('--mse_weight', type=float, default=1.0, help='MSE损失的权重')
-    parser.add_argument('--rank_weight', type=float, default=1.0, help='排序损失的权重')
+    parser.add_argument('--rank_weight', type=float, default=0.2, help='排序损失的权重')
     parser.add_argument('--beta', type=float, default=0.3, help='自适应边界强度控制因子')
     parser.add_argument('--gamma', type=float, default=0.1, help='自适应边界非线性调整因子')  
     
@@ -216,11 +216,11 @@ def main():
             # 使用组合损失函数（MSE + 自适应边界排序损失）  
             criterion = CombinedLoss(
                 mse_weight=getattr(config, 'mse_weight', 1.0),  
-                rank_weight=getattr(config, 'rank_weight', 1.0),  
+                rank_weight=getattr(config, 'rank_weight', 0.2),  
                 beta=getattr(config, 'beta', 0.3),  
                 gamma=getattr(config, 'gamma', 0.1)  
             )  
-            print(f"使用组合损失函数: MSE权重={getattr(config, 'mse_weight', 1.0)}, 排序权重={getattr(config, 'rank_weight', 1.0)}")  
+            print(f"使用组合损失函数: MSE权重={getattr(config, 'mse_weight', 1.0)}, 排序权重={getattr(config, 'rank_weight', 0.2)}")  
             print(f"自适应边界参数: beta={getattr(config, 'beta', 0.3)}, gamma={getattr(config, 'gamma', 0.1)}")  
         else:  
             # 使用传统的MSE损失  
