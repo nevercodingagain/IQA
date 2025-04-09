@@ -21,7 +21,7 @@ class Config:
         self.experiment_name = 'default'  # 实验名称，用于创建实验目录
         self.model_type = 'vit'  # 模型类型: vit、resnet_vit、resnet_vit_concat、swin
         self.swin_size = 'tiny'  # Swin模型大小: tiny, small, base, large  
-        self.batch_size = 128  # 批大小
+        self.batch_size = 80  # 批大小
         self.num_workers = 12  # 数据加载的工作线程数
         self.use_cuda = True  # 是否使用CUDA
         self.dataset = 'koniq10k'  # 数据集名称
@@ -40,7 +40,8 @@ class Config:
         self.freeze_backbone = False  # 是否冻结backbone参数
         self.seed = 42  # 随机种子
         self.save_frequency = 20  # 模型保存频率，每多少个epoch保存一次带epoch信息的模型
-        self.loss_type = 'combined'  # 损失函数类型: 'mse'或'combined'
+        self.loss_type = 'combined'  # 损失函数类型: mse或combined  
+        self.rank_type = 'adaptive'  # 排序损失类型: adaptive或exponential
         self.mse_weight = 1.0  # MSE损失的权重
         self.rank_weight = 0.2  # 排序损失的权重
         self.beta = 0.3  # 自适应边界强度控制因子

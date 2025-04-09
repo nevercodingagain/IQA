@@ -78,14 +78,64 @@ class AdaptiveBoundaryRankingLoss(nn.Module):
             
         return loss
 
+class ExponentialRankingLoss(nn.Module):  
+    """  
+    使用矩阵运算优化的指数形式排序损失函数  
+    
+    公式: lossrank = (2/N) * Σ{e^(yˆi−yˆi+1), if yi < yi+1; 0, others}  
+    """  
+    def __init__(self):  
+        super(ExponentialRankingLoss, self).__init__()  
+    
+    def forward(self, pred, target):  
+        batch_size = pred.size(0)  
+        if batch_size <= 1:  
+            return torch.tensor(0.0, device=pred.device)  
+        
+        # 展平预测和真实分数  
+        pred = pred.view(-1)  
+        target = target.view(-1)  
+        
+        # 直接筛选相邻对(步长为2)  
+        loss = torch.tensor(0.0, device=pred.device)  
+        
+        # 创建索引  
+        even_indices = torch.arange(0, batch_size-1, 2, device=pred.device)  
+        
+        # 提取对应位置的值  
+        even_targets = target[even_indices]  
+        odd_targets = target[even_indices + 1]  
+        even_preds = pred[even_indices]  
+        odd_preds = pred[even_indices + 1]  
+        
+        # 掩码和损失计算  
+        mask = even_targets < odd_targets  
+        if mask.sum() > 0:  
+            # 只对满足条件的对计算损失  
+            loss = torch.exp(even_preds[mask] - odd_preds[mask]).sum()  
+            # 乘以2/N系数  
+            loss = (2.0 / batch_size) * loss  
+        
+        return loss  
+
 class CombinedLoss(nn.Module):
     """
-    结合MSE损失和自适应边界排序损失的组合损失函数
+    结合MSE损失和排序损失的组合损失函数
+    
+    可以选择使用自适应边界排序损失或指数形式的排序损失
     """
-    def __init__(self, mse_weight=1.0, rank_weight=0.2, beta=0.3, gamma=0.1):
+    def __init__(self, mse_weight=1.0, rank_weight=0.2, beta=0.3, gamma=0.1, rank_type='adaptive'):
         super(CombinedLoss, self).__init__()
         self.mse_loss = MSELoss()
-        self.rank_loss = AdaptiveBoundaryRankingLoss(beta=beta, gamma=gamma)
+        
+        # 根据指定的类型选择排序损失函数
+        if rank_type == 'adaptive':
+            self.rank_loss = AdaptiveBoundaryRankingLoss(beta=beta, gamma=gamma)
+        elif rank_type == 'exponential':
+            self.rank_loss = ExponentialRankingLoss()
+        else:
+            raise ValueError(f"不支持的排序损失类型: {rank_type}")
+            
         self.mse_weight = mse_weight
         self.rank_weight = rank_weight
     

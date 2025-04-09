@@ -46,11 +46,14 @@ def main():
     # 添加损失函数类型选择参数
     parser.add_argument('--loss_type', type=str, default='combined', choices=['mse', 'combined'],
                     help='损失函数类型: mse(均方误差)或combined(MSE+排序损失的组合)')
-    # 自适应边界排序损失函数相关参数
+    # 排序损失函数类型选择参数
+    parser.add_argument('--rank_type', type=str, default='adaptive', choices=['adaptive', 'exponential'],
+                    help='排序损失函数类型: adaptive(自适应边界排序损失)或exponential(指数形式排序损失)')
+    # 损失函数相关参数
     parser.add_argument('--mse_weight', type=float, default=1.0, help='MSE损失的权重')
-    parser.add_argument('--rank_weight', type=float, default=0.2, help='排序损失的权重')
-    parser.add_argument('--beta', type=float, default=0.3, help='自适应边界强度控制因子')
-    parser.add_argument('--gamma', type=float, default=0.1, help='自适应边界非线性调整因子')  
+    parser.add_argument('--rank_weight', type=float, default=1.0, help='排序损失的权重')
+    parser.add_argument('--beta', type=float, default=0.3, help='自适应边界强度控制因子(仅用于自适应边界排序损失)')
+    parser.add_argument('--gamma', type=float, default=0.1, help='自适应边界非线性调整因子(仅用于自适应边界排序损失)')  
     
     args = parser.parse_args()  
     
@@ -203,15 +206,24 @@ def main():
         
         # 创建优化器和损失函数  
         if config.loss_type == 'combined':
-            # 使用组合损失函数（MSE + 自适应边界排序损失）  
+            # 获取排序损失函数类型
+            rank_type = getattr(config, 'rank_type', 'adaptive')
+            
+            # 使用组合损失函数（MSE + 排序损失）  
             criterion = CombinedLoss(
                 mse_weight=getattr(config, 'mse_weight', 1.0),  
                 rank_weight=getattr(config, 'rank_weight', 0.2),  
                 beta=getattr(config, 'beta', 0.3),  
-                gamma=getattr(config, 'gamma', 0.1)  
+                gamma=getattr(config, 'gamma', 0.1),
+                rank_type=rank_type
             )  
             print(f"使用组合损失函数: MSE权重={getattr(config, 'mse_weight', 1.0)}, 排序权重={getattr(config, 'rank_weight', 0.2)}")  
-            print(f"自适应边界参数: beta={getattr(config, 'beta', 0.3)}, gamma={getattr(config, 'gamma', 0.1)}")  
+            
+            if rank_type == 'adaptive':
+                print(f"使用自适应边界排序损失: beta={getattr(config, 'beta', 0.3)}, gamma={getattr(config, 'gamma', 0.1)}")  
+            elif rank_type == 'exponential':
+                print("使用指数形式排序损失")
+            
         else:  
             # 使用传统的MSE损失  
             criterion = MSELoss()  

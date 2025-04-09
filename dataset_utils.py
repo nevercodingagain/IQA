@@ -32,7 +32,7 @@ class KonIQ10kDataset(Dataset):
         self.data = self._read_label_file(label_file)
         
         # 划分数据集
-        self._split_dataset(train_ratio, val_ratio, val_ratio, random_state)
+        self._split_dataset(train_ratio, val_ratio, random_state)
     
     def _read_label_file(self, label_file):
         """
