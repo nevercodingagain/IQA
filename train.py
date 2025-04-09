@@ -3,9 +3,11 @@ import torch.distributed as dist
 from scipy.stats import spearmanr, pearsonr  
 from tqdm import tqdm  
 from losses import CombinedLoss  
+import logging
+
 
 # 训练一个epoch  
-def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num_epochs=None):  
+def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num_epochs=None, logger=None):  
     model.train()  
     epoch_loss = 0.0  
     epoch_mse_loss = 0.0  # 用于累积MSE损失
@@ -23,6 +25,13 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
         world_size = 1  
     
     dataset_size = len(dataloader.dataset)  
+    
+    # 记录训练开始信息
+    if rank == 0 and logger and logger.isEnabledFor(logging.INFO):
+        batch_count = len(dataloader)
+        sample_count = len(dataloader.dataset)
+        logger.info(f"开始训练 Epoch {epoch+1 if epoch is not None else '?'}/{num_epochs if num_epochs is not None else '?'}")
+        logger.info(f"  批次数: {batch_count}, 样本数: {sample_count}")
     
     # 只在主进程显示训练进度条  
     if rank == 0:  
@@ -73,6 +82,16 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
     srcc, _ = spearmanr(all_targets, all_preds)  
     plcc, _ = pearsonr(all_targets, all_preds)  
     
+    # 记录验证结束信息
+    if rank == 0 and logger and logger.isEnabledFor(logging.INFO):
+        if isinstance(criterion, CombinedLoss):
+            epoch_mse_loss = epoch_mse_loss / dataset_size
+            epoch_rank_loss = epoch_rank_loss / dataset_size
+            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}, MSE={epoch_mse_loss:.4f}, Rank={epoch_rank_loss:.4f}")
+        else:
+            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}")
+    
+    
     # 如果使用了CombinedLoss，返回额外的损失信息
     if isinstance(criterion, CombinedLoss):
         epoch_mse_loss = epoch_mse_loss / dataset_size
@@ -82,7 +101,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
         return epoch_loss, srcc, plcc  
 
 # 验证一个epoch  
-def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=None):  
+def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=None, logger=None):  
     model.eval()  
     epoch_loss = 0.0  
     epoch_mse_loss = 0.0  # 用于累积MSE损失
@@ -100,6 +119,13 @@ def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=
         world_size = 1  
     
     dataset_size = len(dataloader.dataset)  
+    
+    # 记录验证开始信息
+    if rank == 0 and logger and logger.isEnabledFor(logging.INFO):
+        batch_count = len(dataloader)
+        sample_count = len(dataloader.dataset)
+        logger.info(f"开始验证 Epoch {epoch+1 if epoch is not None else '?'}/{num_epochs if num_epochs is not None else '?'}")
+        logger.info(f"  批次数: {batch_count}, 样本数: {sample_count}")
     
     with torch.no_grad():  
         # 只在主进程显示验证进度条  
@@ -141,6 +167,16 @@ def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=
     # 计算SRCC和PLCC  
     srcc, _ = spearmanr(all_targets, all_preds)  
     plcc, _ = pearsonr(all_targets, all_preds)  
+    
+    # 记录验证结束信息
+    if rank == 0 and logger and logger.isEnabledFor(logging.INFO):
+        if isinstance(criterion, CombinedLoss):
+            epoch_mse_loss = epoch_mse_loss / dataset_size
+            epoch_rank_loss = epoch_rank_loss / dataset_size
+            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}, MSE={epoch_mse_loss:.4f}, Rank={epoch_rank_loss:.4f}")
+        else:
+            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}")
+    
     
     # 如果使用了CombinedLoss，返回额外的损失信息
     if isinstance(criterion, CombinedLoss):

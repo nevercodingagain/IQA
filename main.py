@@ -11,6 +11,7 @@ from dataset_utils import get_data_transforms, KonIQ10kDataset
 from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA, SwinForIQA
 from train import train_epoch, validate_epoch  
 from losses import MSELoss, AdaptiveBoundaryRankingLoss, CombinedLoss  
+from logger_utils import setup_logger, log_section_start, log_section_end, log_config, log_dataset_info, log_epoch_results, log_best_model_info  
 
 def main():  
     # 创建命令行参数解析器  
@@ -122,6 +123,13 @@ def main():
             # 保存配置  
             with open(os.path.join(logs_dir, 'config.txt'), 'w') as f:  
                 f.write(str(config))  
+            
+            # 设置日志记录器
+            logger = setup_logger(experiment_dir)
+            log_section_start(logger, "实验初始化")
+            logger.info(f"实验目录: {experiment_dir}")
+            log_config(logger, config)
+            log_section_end(logger, "实验初始化")
                 
             print(f"实验目录: {experiment_dir}")  
         else:  
@@ -129,6 +137,7 @@ def main():
             logs_dir = None  
             models_dir = None  
             tensorboard_dir = None  
+            logger = None  
         
         # 创建数据集和数据加载器  
         transforms_dict = get_data_transforms()  
@@ -146,6 +155,12 @@ def main():
             transform=transforms_dict['val'],  
             split='val'  
         )  
+        
+        # 记录数据集信息
+        if rank == 0:
+            log_section_start(logger, "数据集信息")
+            log_dataset_info(logger, train_dataset, val_dataset)
+            log_section_end(logger, "数据集信息")  
         
         
         if is_distributed:  
@@ -178,6 +193,10 @@ def main():
         
         
         # 创建模型  
+        if rank == 0:
+            log_section_start(logger, "模型初始化")
+            logger.info(f"创建模型类型: {config.model_type}")
+            
         if config.model_type == 'vit':  
             model = ViTForIQA(pretrained=True, freeze_backbone=config.freeze_backbone)  
         elif config.model_type == 'resnet_vit':  
@@ -192,6 +211,10 @@ def main():
             )  
         else:  
             raise ValueError(f"不支持的模型类型: {config.model_type}")  
+            
+        if rank == 0:
+            logger.info(f"模型创建完成: {config.model_type}")
+            log_section_end(logger, "模型初始化")  
         
         # 将模型移动到设备  
         model = model.to(device)  
@@ -205,6 +228,9 @@ def main():
             )  
         
         # 创建优化器和损失函数  
+        if rank == 0:
+            log_section_start(logger, "损失函数和优化器")
+            
         if config.loss_type == 'combined':
             # 获取排序损失函数类型
             rank_type = getattr(config, 'rank_type', 'adaptive')
@@ -219,15 +245,24 @@ def main():
             )  
             print(f"使用组合损失函数: MSE权重={getattr(config, 'mse_weight', 1.0)}, 排序权重={getattr(config, 'rank_weight', 0.2)}")  
             
+            if rank == 0:
+                logger.info(f"使用组合损失函数: MSE权重={getattr(config, 'mse_weight', 1.0)}, 排序权重={getattr(config, 'rank_weight', 0.2)}")
+            
             if rank_type == 'adaptive':
                 print(f"使用自适应边界排序损失: beta={getattr(config, 'beta', 0.3)}, gamma={getattr(config, 'gamma', 0.1)}")  
+                if rank == 0:
+                    logger.info(f"使用自适应边界排序损失: beta={getattr(config, 'beta', 0.3)}, gamma={getattr(config, 'gamma', 0.1)}")
             elif rank_type == 'exponential':
                 print("使用指数形式排序损失")
+                if rank == 0:
+                    logger.info("使用指数形式排序损失")
             
         else:  
             # 使用传统的MSE损失  
             criterion = MSELoss()  
             print("使用传统MSE损失函数")  
+            if rank == 0:
+                logger.info("使用传统MSE损失函数")  
             
         optimizer = torch.optim.Adam(  
             model.parameters(),   
@@ -241,6 +276,11 @@ def main():
             patience=5,   
             verbose=(rank==0)  
         )  
+        
+        if rank == 0:
+            logger.info(f"优化器: Adam, 学习率: {config.learning_rate}, 权重衰减: {config.weight_decay}")
+            logger.info("学习率调度器: ReduceLROnPlateau, 模式: min, 因子: 0.5, 耐心值: 5")
+            log_section_end(logger, "损失函数和优化器")  
         
         # 训练循环  
         best_val_metric = -1.0  
@@ -257,13 +297,17 @@ def main():
         # 使用tqdm包装epoch循环，只在主进程中显示进度
         epoch_iterator = tqdm(range(config.num_epochs), desc="训练进度", position=0, leave=True) if rank == 0 else range(config.num_epochs)
         
+        if rank == 0:
+            log_section_start(logger, "训练过程")
+            logger.info(f"开始训练，总共 {config.num_epochs} 个epochs")
+        
         for epoch in epoch_iterator:  
             if is_distributed:  
                 train_sampler.set_epoch(epoch)  
             
             # 训练一个epoch  
             train_results = train_epoch(  
-                model, train_loader, criterion, optimizer, device, epoch, config.num_epochs  
+                model, train_loader, criterion, optimizer, device, epoch, config.num_epochs, logger  
             )
             
             # 处理返回结果
@@ -275,7 +319,7 @@ def main():
             
             # 验证  
             val_results = validate_epoch(  
-                model, val_loader, criterion, device, epoch, config.num_epochs  
+                model, val_loader, criterion, device, epoch, config.num_epochs, logger  
             )
             
             # 处理返回结果
@@ -309,12 +353,27 @@ def main():
                       f"Train Loss: {train_loss:.4f}, SRCC: {train_srcc:.4f}, PLCC: {train_plcc:.4f} | "  
                       f"Val Loss: {val_loss:.4f}, SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}")  
                 
+                # 记录训练和验证结果到日志
+                if isinstance(criterion, CombinedLoss):
+                    train_results = (train_loss, train_srcc, train_plcc, train_mse_loss, train_rank_loss)
+                    val_results = (val_loss, val_srcc, val_plcc, val_mse_loss, val_rank_loss)
+                else:
+                    train_results = (train_loss, train_srcc, train_plcc)
+                    val_results = (val_loss, val_srcc, val_plcc)  
+                
+                # 记录epoch结果到日志
+                is_best = False
+                val_metric = val_srcc + val_plcc
+                if val_metric > best_val_metric:
+                    is_best = True
+                    best_val_metric = val_metric
+                    best_epoch = epoch
+                
+                # 记录到日志系统
+                log_epoch_results(logger, epoch, config.num_epochs, train_results, val_results, is_best)
+                
                 # 保存最佳模型  
-                val_metric = val_srcc + val_plcc  
-                if val_metric > best_val_metric:  
-                    best_val_metric = val_metric  
-                    best_epoch = epoch  
-                    
+                if is_best:  
                     # 保存模型  
                     model_to_save = model.module if hasattr(model, 'module') else model  
                     torch.save({  
@@ -327,6 +386,7 @@ def main():
                     }, os.path.join(models_dir, 'best_model.pth'))  
                     
                     print(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")  
+                    logger.info(f"保存最佳模型，验证SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}")
                     
                     # 记录更好的结果到日志文件（追加模式）
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -358,12 +418,49 @@ def main():
                 f.write(f"\n[{current_time}] 训练完成 - 最佳模型来自第{best_epoch+1}个epoch\n")
                 f.write(f"最终验证指标总和: {best_val_metric:.4f}\n\n")
             
+            # 记录到日志系统
+            log_section_end(logger, "训练过程")
+            log_section_start(logger, "训练总结")
+            logger.info(f"训练完成，共 {config.num_epochs} 个epochs")
+            
+            # 记录最佳模型信息
+            if isinstance(criterion, CombinedLoss):
+                best_val_results = (val_loss, val_srcc, val_plcc, val_mse_loss, val_rank_loss)
+            else:
+                best_val_results = (val_loss, val_srcc, val_plcc)
+            log_best_model_info(logger, best_epoch, best_val_results)
+            log_section_end(logger, "训练总结")
+            
             # 关闭TensorBoard
             writer.close()  
     
     elif config.mode == 'evaluate':  
-        # 调用原始评估函数  
-        evaluate(config)  
+        # 创建评估日志目录
+        if not os.path.exists(config.output_dir):
+            os.makedirs(config.output_dir, exist_ok=True)
+        
+        # 设置评估日志
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        eval_dir = os.path.join(config.output_dir, f"eval_{timestamp}")
+        os.makedirs(eval_dir, exist_ok=True)
+        
+        # 设置日志记录器
+        logger = setup_logger(eval_dir, f"eval_{timestamp}.log")
+        log_section_start(logger, "评估开始")
+        logger.info(f"模型路径: {config.model_path}")
+        log_config(logger, config)
+        
+        # 调用原始评估函数并获取结果
+        results = evaluate(config, logger)
+        
+        # 记录评估结果
+        if results:
+            log_section_start(logger, "评估结果")
+            for key, value in results.items():
+                logger.info(f"{key}: {value:.4f}")
+            log_section_end(logger, "评估结果")
+        
+        log_section_end(logger, "评估结束")  
 
 if __name__ == '__main__':  
     main()
