@@ -11,28 +11,27 @@ class KonIQ10kDataset(Dataset):
     """
     KonIQ-10k数据集加载类
     """
-    def __init__(self, root_dir, label_file, transform=None, split='train', train_ratio=0.8, val_ratio=0.2, random_state=42):
-        """
-        初始化KonIQ-10k数据集
+    def __init__(self, root_dir, data=None, label_file=None, transform=None):  
+        """  
+        初始化KonIQ-10k数据集  
         
-        参数:
-            root_dir (str): 图像文件所在的根目录
-            label_file (str): 标签文件路径
-            transform (callable, optional): 应用于图像的转换
-            split (str): 'train'或'val'
-            train_ratio (float): 训练集比例
-            val_ratio (float): 验证集比例
-            random_state (int): 随机种子
-        """
-        self.root_dir = root_dir
-        self.transform = transform
-        self.split = split
+        参数:  
+            root_dir (str): 图像文件所在的根目录  
+            data (pandas.DataFrame, optional): 预先划分好的数据  
+            label_file (str, optional): 标签文件路径 (当data为None时使用)  
+            transform (callable, optional): 应用于图像的转换  
+        """  
+        self.root_dir = root_dir  
+        self.transform = transform  
         
-        # 读取标签文件
-        self.data = self._read_label_file(label_file)
-        
-        # 划分数据集
-        self._split_dataset(train_ratio, val_ratio, random_state)
+        # 直接使用传入的数据，或者读取标签文件  
+        if data is not None:  
+            self.data = data  
+        elif label_file is not None:  
+            # 读取标签文件  
+            self.data = self._read_label_file(label_file)  
+        else:  
+            raise ValueError("必须提供data或label_file") 
     
     def _read_label_file(self, label_file):
         """
@@ -48,33 +47,6 @@ class KonIQ10kDataset(Dataset):
         df = pd.read_csv(label_file, sep='\t', header=None)
         df.columns = ['id', 'image_name', 'mos']
         return df
-    
-    def _split_dataset(self, train_ratio, val_ratio, random_state):
-        """
-        划分数据集为训练集和验证集
-        
-        参数:
-            train_ratio (float): 训练集比例
-            val_ratio (float): 验证集比例
-            random_state (int): 随机种子
-        """
-        # 确保比例之和为1
-        assert abs(train_ratio + val_ratio - 1.0) < 1e-5, "比例之和必须为1"
-        
-        # 打乱数据
-        shuffled_data = self.data.sample(frac=1, random_state=random_state).reset_index(drop=True)
-        
-        # 计算各集合的大小
-        n_samples = len(shuffled_data)
-        n_train = int(n_samples * train_ratio)
-        
-        # 划分数据集
-        if self.split == 'train':
-            self.data = shuffled_data[:n_train]
-        elif self.split == 'val':
-            self.data = shuffled_data[n_train:]
-        else:
-            raise ValueError(f"无效的split值: {self.split}，必须是'train'或'val'")
     
     def __len__(self):
         """
@@ -127,8 +99,7 @@ def get_data_transforms():
     # 定义数据转换
     train_transform = transforms.Compose([
         transforms.Resize((224, 224)),  # ViT通常使用224x224的输入大小
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
+        # transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # ImageNet标准化
     ])
@@ -142,53 +113,80 @@ def get_data_transforms():
     return {'train': train_transform, 'val': val_transform}
 
 
-def get_dataloaders(root_dir, label_file, batch_size=32, num_workers=4):
-    """
-    获取数据加载器
+def get_dataloaders(root_dir, label_file, batch_size=32, num_workers=4, train_ratio=0.8, val_ratio=0.2, random_state=42):  
+    """  
+    获取数据加载器，确保训练集和验证集没有重叠  
     
-    参数:
-        root_dir (str): 图像文件所在的根目录
-        label_file (str): 标签文件路径
-        batch_size (int): 批大小
-        num_workers (int): 数据加载的工作线程数
+    参数:  
+        root_dir (str): 图像文件所在的根目录  
+        label_file (str): 标签文件路径  
+        batch_size (int): 批大小  
+        num_workers (int): 数据加载的工作线程数  
+        train_ratio (float): 训练集比例  
+        val_ratio (float): 验证集比例  
+        random_state (int): 随机种子，控制数据集划分的随机性  
         
-    返回:
-        dict: 包含训练和验证数据加载器的字典
-    """
-    # 获取数据转换
-    transforms_dict = get_data_transforms()
+    返回:  
+        dict: 包含训练和验证数据加载器的字典  
+    """  
+    # 获取数据转换  
+    transforms_dict = get_data_transforms()  
     
-    # 创建数据集
-    train_dataset = KonIQ10kDataset(
-        root_dir=root_dir,
-        label_file=label_file,
-        transform=transforms_dict['train'],
-        split='train'
-    )
+    # 读取所有数据并执行一次性划分  
+    df = pd.read_csv(label_file, sep='\t', header=None)  
+    df.columns = ['id', 'image_name', 'mos']  
     
-    val_dataset = KonIQ10kDataset(
-        root_dir=root_dir,
-        label_file=label_file,
-        transform=transforms_dict['val'],
-        split='val'
-    )
+    # 确保比例之和为1  
+    assert abs(train_ratio + val_ratio - 1.0) < 1e-5, "比例之和必须为1"  
     
-    # 创建数据加载器
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True
-    )
+    # 打乱数据 - 使用传入的random_state  
+    shuffled_data = df.sample(frac=1, random_state=random_state).reset_index(drop=True)  
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
+    # 计算各集合的大小  
+    n_samples = len(shuffled_data)  
+    n_train = int(n_samples * train_ratio)  
+    
+    # 划分为训练集和验证集  
+    train_data = shuffled_data[:n_train]  
+    val_data = shuffled_data[n_train:]  
+    
+    # 验证没有重叠  
+    # train_images = set(train_data['image_name'])  
+    # val_images = set(val_data['image_name'])  
+    # overlap = train_images.intersection(val_images)  
+    # print(f"训练集大小: {len(train_images)}")  
+    # print(f"验证集大小: {len(val_images)}")  
+    # print(f"重叠数量: {len(overlap)}")  
+    
+    # 创建数据集  
+    train_dataset = KonIQ10kDataset(  
+        root_dir=root_dir,  
+        data=train_data,  # 传入预先划分的数据  
+        transform=transforms_dict['train']  
+    )  
+    
+    val_dataset = KonIQ10kDataset(  
+        root_dir=root_dir,  
+        data=val_data,  # 传入预先划分的数据  
+        transform=transforms_dict['val']  
+    )  
+    
+    # 创建数据加载器  
+    train_loader = DataLoader(  
+        train_dataset,  
+        batch_size=batch_size,  
+        shuffle=True,  
+        num_workers=num_workers,  
+        pin_memory=True  
+    )  
+    
+    val_loader = DataLoader(  
+        val_dataset,  
+        batch_size=batch_size,  
+        shuffle=False,  
+        num_workers=num_workers,  
+        pin_memory=True  
+    )  
     
     return {'train': train_loader, 'val': val_loader}
 
@@ -235,7 +233,12 @@ def main():
     label_file = 'data/koniq-10k.txt'
     
     # 获取数据加载器
-    dataloaders = get_dataloaders(root_dir, label_file, batch_size=32)
+    dataloaders = get_dataloaders(  
+        root_dir=root_dir,   
+        label_file=label_file,   
+        batch_size=32,  
+        random_state=42 
+    )  
     
     # 打印数据集大小
     for split, dataloader in dataloaders.items():

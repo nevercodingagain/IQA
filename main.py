@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from evaluate import evaluate  
 from config import get_train_config, get_eval_config  
-from dataset_utils import get_data_transforms, KonIQ10kDataset  
+from dataset_utils import get_data_transforms, get_dataloaders  
 from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA, SwinForIQA
 from train import train_epoch, validate_epoch  
 from losses import MSELoss, AdaptiveBoundaryRankingLoss, CombinedLoss  
@@ -139,57 +139,47 @@ def main():
             tensorboard_dir = None  
             logger = None  
         
-        # 创建数据集和数据加载器  
-        transforms_dict = get_data_transforms()  
-        
-        train_dataset = KonIQ10kDataset(  
+        # 获取数据集和加载器，使用get_dataloaders函数  
+        dataloaders = get_dataloaders(  
             root_dir=config.data_dir,  
             label_file=config.label_file,  
-            transform=transforms_dict['train'],  
-            split='train'  
+            batch_size=config.batch_size,  
+            num_workers=config.num_workers,  
+            random_state=config.seed  
         )  
-        
-        val_dataset = KonIQ10kDataset(  
-            root_dir=config.data_dir,  
-            label_file=config.label_file,  
-            transform=transforms_dict['val'],  
-            split='val'  
-        )  
-        
+
+        train_dataset = dataloaders['train'].dataset  
+        val_dataset = dataloaders['val'].dataset  
+
         # 记录数据集信息
         if rank == 0:
             log_section_start(logger, "数据集信息")
             log_dataset_info(logger, train_dataset, val_dataset)
             log_section_end(logger, "数据集信息")  
-        
-        
+
+        # 如果是分布式训练，重新创建train_loader  
         if is_distributed:  
             train_sampler = torch.utils.data.distributed.DistributedSampler(  
-                train_dataset,   
+                train_dataset,  
                 num_replicas=world_size,  
                 rank=rank,  
                 shuffle=True,  
                 seed=config.seed  
             )  
+            
+            train_loader = torch.utils.data.DataLoader(  
+                train_dataset,  
+                batch_size=config.batch_size,  
+                shuffle=False,  # 使用DistributedSampler时必须为False  
+                num_workers=config.num_workers,  
+                pin_memory=True,  
+                sampler=train_sampler  
+            )  
         else:  
             train_sampler = None  
-        
-        train_loader = torch.utils.data.DataLoader(  
-            train_dataset,  
-            batch_size=config.batch_size,  
-            shuffle=(train_sampler is None),  
-            num_workers=config.num_workers,  
-            pin_memory=True,  
-            sampler=train_sampler  
-        )  
-        
-        val_loader = torch.utils.data.DataLoader(  
-            val_dataset,  
-            batch_size=config.batch_size,  
-            shuffle=False,  
-            num_workers=config.num_workers,  
-            pin_memory=True  
-        )  
+            train_loader = dataloaders['train']  
+
+        val_loader = dataloaders['val']  
         
         
         # 创建模型  

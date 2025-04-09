@@ -21,7 +21,7 @@ class Config:
         self.experiment_name = 'default'  # 实验名称，用于创建实验目录
         self.model_type = 'vit'  # 模型类型: vit、resnet_vit、resnet_vit_concat、swin
         self.swin_size = 'tiny'  # Swin模型大小: tiny, small, base, large  
-        self.batch_size = 80  # 批大小
+        self.batch_size = 32  # 批大小
         self.num_workers = 12  # 数据加载的工作线程数
         self.use_cuda = True  # 是否使用CUDA
         self.dataset = 'koniq10k'  # 数据集名称

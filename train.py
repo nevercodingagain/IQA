@@ -31,7 +31,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
         batch_count = len(dataloader)
         sample_count = len(dataloader.dataset)
         logger.info(f"开始训练 Epoch {epoch+1 if epoch is not None else '?'}/{num_epochs if num_epochs is not None else '?'}")
-        logger.info(f"  批次数: {batch_count}, 样本数: {sample_count}")
     
     # 只在主进程显示训练进度条  
     if rank == 0:  
@@ -85,11 +84,11 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
     # 记录验证结束信息
     if rank == 0 and logger and logger.isEnabledFor(logging.INFO):
         if isinstance(criterion, CombinedLoss):
-            epoch_mse_loss = epoch_mse_loss / dataset_size
-            epoch_rank_loss = epoch_rank_loss / dataset_size
-            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}, MSE={epoch_mse_loss:.4f}, Rank={epoch_rank_loss:.4f}")
+            avg_mse_loss = epoch_mse_loss / dataset_size  
+            avg_rank_loss = epoch_rank_loss / dataset_size
+            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}, MSE={avg_mse_loss:.4f}, Rank={avg_rank_loss:.4f}")
         else:
-            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}")
+            logger.info(f"训练 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}")
     
     
     # 如果使用了CombinedLoss，返回额外的损失信息
@@ -125,7 +124,6 @@ def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=
         batch_count = len(dataloader)
         sample_count = len(dataloader.dataset)
         logger.info(f"开始验证 Epoch {epoch+1 if epoch is not None else '?'}/{num_epochs if num_epochs is not None else '?'}")
-        logger.info(f"  批次数: {batch_count}, 样本数: {sample_count}")
     
     with torch.no_grad():  
         # 只在主进程显示验证进度条  
@@ -171,9 +169,9 @@ def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=
     # 记录验证结束信息
     if rank == 0 and logger and logger.isEnabledFor(logging.INFO):
         if isinstance(criterion, CombinedLoss):
-            epoch_mse_loss = epoch_mse_loss / dataset_size
-            epoch_rank_loss = epoch_rank_loss / dataset_size
-            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}, MSE={epoch_mse_loss:.4f}, Rank={epoch_rank_loss:.4f}")
+            avg_mse_loss = epoch_mse_loss / dataset_size  
+            avg_rank_loss = epoch_rank_loss / dataset_size
+            logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}, MSE={avg_mse_loss:.4f}, Rank={avg_rank_loss:.4f}")
         else:
             logger.info(f"验证 Epoch {epoch+1 if epoch is not None else '?'} 完成: Loss={epoch_loss:.4f}, SRCC={srcc:.4f}, PLCC={plcc:.4f}")
     
