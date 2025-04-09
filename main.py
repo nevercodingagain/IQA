@@ -28,6 +28,8 @@ def main():
     parser.add_argument('--model_type', type=str,   
                     choices=['vit', 'resnet_vit', 'resnet_vit_concat', 'swin'],  
                     help='模型类型: vit、resnet_vit、resnet_vit_concat或swin')  
+    parser.add_argument('--swin_size', type=str, default='tiny', choices=['tiny', 'small', 'base', 'large'],  
+                    help='Swin Transformer模型大小: tiny, small, base, large')  
     parser.add_argument('--batch_size', type=int, help='批大小')  
     parser.add_argument('--num_workers', type=int, help='数据加载的工作线程数')  
     parser.add_argument('--no_cuda', action='store_true', help='禁用CUDA')  
