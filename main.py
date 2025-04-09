@@ -140,16 +140,10 @@ def main():
         val_dataset = KonIQ10kDataset(  
             root_dir=config.data_dir,  
             label_file=config.label_file,  
-            transform=transforms_dict['test'],  
+            transform=transforms_dict['val'],  
             split='val'  
         )  
         
-        test_dataset = KonIQ10kDataset(  
-            root_dir=config.data_dir,  
-            label_file=config.label_file,  
-            transform=transforms_dict['test'],  
-            split='test'  
-        )  
         
         if is_distributed:  
             train_sampler = torch.utils.data.distributed.DistributedSampler(  
@@ -179,13 +173,6 @@ def main():
             pin_memory=True  
         )  
         
-        test_loader = torch.utils.data.DataLoader(  
-            test_dataset,  
-            batch_size=config.batch_size,  
-            shuffle=False,  
-            num_workers=config.num_workers,  
-            pin_memory=True  
-        )  
         
         # 创建模型  
         if config.model_type == 'vit':  
@@ -331,7 +318,7 @@ def main():
                     
                     # 记录更好的结果到日志文件（追加模式）
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    with open(os.path.join(logs_dir, 'test_results.txt'), 'a') as f:
+                    with open(os.path.join(logs_dir, 'val_results.txt'), 'a') as f:
                         f.write(f"[{current_time}] Epoch {epoch+1}/{config.num_epochs} - 新的最佳结果\n")
                         f.write(f"验证 SRCC: {val_srcc:.4f}, PLCC: {val_plcc:.4f}, 总和: {val_metric:.4f}\n\n")  
                 
@@ -348,46 +335,19 @@ def main():
                     }, os.path.join(models_dir, f'model_epoch_{epoch+1}.pth'))  
                     print(f"按照保存频率保存模型，epoch: {epoch+1}")  
         
-        # 训练结束后，在主进程上评估最佳模型在测试集上的表现  
-        if rank == 0:  
-            print(f"\n训练完成，最佳模型来自第{best_epoch+1}个epoch，验证指标总和: {best_val_metric:.4f}")  
-            print("正在加载最佳模型并在测试集上评估...")  
+        # 训练结束后，在主进程上记录最终结果
+        if rank == 0:
+            # 记录最佳模型信息
+            print(f"\n训练完成，最佳模型来自第{best_epoch+1}个epoch，验证指标总和: {best_val_metric:.4f}")
             
-            # 加载最佳模型  
-            checkpoint = torch.load(os.path.join(models_dir, 'best_model.pth'))  
-            model_to_load = model.module if hasattr(model, 'module') else model  
-            model_to_load.load_state_dict(checkpoint['model_state_dict'])  
+            # 记录最终训练结果到日志文件（追加模式）
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(os.path.join(logs_dir, 'val_results.txt'), 'a') as f:
+                f.write(f"\n[{current_time}] 训练完成 - 最佳模型来自第{best_epoch+1}个epoch\n")
+                f.write(f"最终验证指标总和: {best_val_metric:.4f}\n\n")
             
-            # 在测试集上评估  
-            test_results = validate_epoch(  
-                model, test_loader, criterion, device, best_epoch, config.num_epochs  
-            )  
-            
-            # 处理返回结果  
-            if isinstance(criterion, CombinedLoss):  
-                test_loss, test_srcc, test_plcc, test_mse_loss, test_rank_loss = test_results  
-            else:  
-                test_loss, test_srcc, test_plcc = test_results  
-                test_mse_loss, test_rank_loss = test_loss, 0.0  
-            
-            test_metric = test_srcc + test_plcc  
-            
-            print(f"测试集性能 - SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}, 总和: {test_metric:.4f}")  
-            
-            # 记录测试集结果到日志文件  
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  
-            with open(os.path.join(logs_dir, 'final_results.txt'), 'w') as f:  
-                f.write(f"[{current_time}] 最终测试结果\n")  
-                f.write(f"最佳模型来自第{best_epoch+1}个epoch (验证集)\n")  
-                f.write(f"验证集 - SRCC: {checkpoint['val_srcc']:.4f}, PLCC: {checkpoint['val_plcc']:.4f}, 总和: {checkpoint['val_metric']:.4f}\n\n")  
-                f.write(f"测试集 - SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}, 总和: {test_metric:.4f}\n")  
-                
-                # 如果使用组合损失，记录额外信息  
-                if isinstance(criterion, CombinedLoss):  
-                    f.write(f"测试集损失详情 - 总损失: {test_loss:.4f}, MSE: {test_mse_loss:.4f}, 排序: {test_rank_loss:.4f}\n")  
-            
-            # 关闭TensorBoard  
-            writer.close() 
+            # 关闭TensorBoard
+            writer.close()  
     
     elif config.mode == 'evaluate':  
         # 调用原始评估函数  

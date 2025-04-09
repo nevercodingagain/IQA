@@ -11,7 +11,7 @@ class KonIQ10kDataset(Dataset):
     """
     KonIQ-10k数据集加载类
     """
-    def __init__(self, root_dir, label_file, transform=None, split='train', train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, random_state=42):
+    def __init__(self, root_dir, label_file, transform=None, split='train', train_ratio=0.8, val_ratio=0.2, random_state=42):
         """
         初始化KonIQ-10k数据集
         
@@ -19,10 +19,9 @@ class KonIQ10kDataset(Dataset):
             root_dir (str): 图像文件所在的根目录
             label_file (str): 标签文件路径
             transform (callable, optional): 应用于图像的转换
-            split (str): 'train', 'val', 或 'test'
+            split (str): 'train'或'val'
             train_ratio (float): 训练集比例
             val_ratio (float): 验证集比例
-            test_ratio (float): 测试集比例
             random_state (int): 随机种子
         """
         self.root_dir = root_dir
@@ -33,7 +32,7 @@ class KonIQ10kDataset(Dataset):
         self.data = self._read_label_file(label_file)
         
         # 划分数据集
-        self._split_dataset(train_ratio, val_ratio, test_ratio, random_state)
+        self._split_dataset(train_ratio, val_ratio, val_ratio, random_state)
     
     def _read_label_file(self, label_file):
         """
@@ -50,18 +49,17 @@ class KonIQ10kDataset(Dataset):
         df.columns = ['id', 'image_name', 'mos']
         return df
     
-    def _split_dataset(self, train_ratio, val_ratio, test_ratio, random_state):
+    def _split_dataset(self, train_ratio, val_ratio, random_state):
         """
-        划分数据集为训练集、验证集和测试集
+        划分数据集为训练集和验证集
         
         参数:
             train_ratio (float): 训练集比例
             val_ratio (float): 验证集比例
-            test_ratio (float): 测试集比例
             random_state (int): 随机种子
         """
         # 确保比例之和为1
-        assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-5, "比例之和必须为1"
+        assert abs(train_ratio + val_ratio - 1.0) < 1e-5, "比例之和必须为1"
         
         # 打乱数据
         shuffled_data = self.data.sample(frac=1, random_state=random_state).reset_index(drop=True)
@@ -69,17 +67,14 @@ class KonIQ10kDataset(Dataset):
         # 计算各集合的大小
         n_samples = len(shuffled_data)
         n_train = int(n_samples * train_ratio)
-        n_val = int(n_samples * val_ratio)
         
         # 划分数据集
         if self.split == 'train':
             self.data = shuffled_data[:n_train]
         elif self.split == 'val':
-            self.data = shuffled_data[n_train:n_train+n_val]
-        elif self.split == 'test':
-            self.data = shuffled_data[n_train+n_val:]
+            self.data = shuffled_data[n_train:]
         else:
-            raise ValueError(f"无效的split值: {self.split}，必须是'train', 'val'或'test'")
+            raise ValueError(f"无效的split值: {self.split}，必须是'train'或'val'")
     
     def __len__(self):
         """
@@ -138,13 +133,13 @@ def get_data_transforms():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # ImageNet标准化
     ])
     
-    test_transform = transforms.Compose([
+    val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     
-    return {'train': train_transform, 'test': test_transform}
+    return {'train': train_transform, 'val': val_transform}
 
 
 def get_dataloaders(root_dir, label_file, batch_size=32, num_workers=4):
@@ -158,7 +153,7 @@ def get_dataloaders(root_dir, label_file, batch_size=32, num_workers=4):
         num_workers (int): 数据加载的工作线程数
         
     返回:
-        dict: 包含训练、验证和测试数据加载器的字典
+        dict: 包含训练和验证数据加载器的字典
     """
     # 获取数据转换
     transforms_dict = get_data_transforms()
@@ -174,15 +169,8 @@ def get_dataloaders(root_dir, label_file, batch_size=32, num_workers=4):
     val_dataset = KonIQ10kDataset(
         root_dir=root_dir,
         label_file=label_file,
-        transform=transforms_dict['test'],
+        transform=transforms_dict['val'],
         split='val'
-    )
-    
-    test_dataset = KonIQ10kDataset(
-        root_dir=root_dir,
-        label_file=label_file,
-        transform=transforms_dict['test'],
-        split='test'
     )
     
     # 创建数据加载器
@@ -202,15 +190,7 @@ def get_dataloaders(root_dir, label_file, batch_size=32, num_workers=4):
         pin_memory=True
     )
     
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
-    return {'train': train_loader, 'val': val_loader, 'test': test_loader}
+    return {'train': train_loader, 'val': val_loader}
 
 
 def visualize_samples(dataloader, num_samples=5):

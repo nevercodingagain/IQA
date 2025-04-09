@@ -15,14 +15,14 @@ def evaluate(config):
     device = torch.device("cuda" if torch.cuda.is_available() and config.use_cuda else "cpu")
     print(f"使用设备: {device}")
     
-    # 获取测试数据加载器
+    # 获取验证数据加载器
     dataloaders = get_dataloaders(
         root_dir=config.data_dir,
         label_file=config.label_file,
         batch_size=config.batch_size,
         num_workers=config.num_workers
     )
-    test_loader = dataloaders['test']
+    val_loader = dataloaders['val']
     
     # 初始化模型
     if config.model_type == 'vit':
@@ -49,13 +49,13 @@ def evaluate(config):
     # 定义损失函数
     criterion = nn.MSELoss()
     
-    # 在测试集上评估
+    # 在验证集上评估
     all_preds = []
     all_targets = []
-    test_loss = 0.0
+    val_loss = 0.0
     
     with torch.no_grad():
-        for batch in test_loader:
+        for batch in val_loader:
             # 获取数据和标签
             images = batch['image'].to(device)
             targets = batch['mos'].to(device)
@@ -65,14 +65,14 @@ def evaluate(config):
             
             # 计算损失
             loss = criterion(outputs, targets)
-            test_loss += loss.item() * images.size(0)
+            val_loss += loss.item() * images.size(0)
             
             # 收集预测和目标值
             all_preds.extend(outputs.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
     
     # 计算平均损失
-    test_loss = test_loss / len(test_loader.dataset)
+    val_loss = val_loss / len(val_loader.dataset)
     
     # 计算评估指标
     srcc, _ = spearmanr(all_targets, all_preds)
@@ -80,7 +80,7 @@ def evaluate(config):
     rmse = np.sqrt(mean_squared_error(all_targets, all_preds))
     
     # 打印结果
-    print(f"测试结果 | Loss: {test_loss:.4f}, SRCC: {srcc:.4f}, PLCC: {plcc:.4f}, RMSE: {rmse:.4f}")
+    print(f"验证结果 | Loss: {val_loss:.4f}, SRCC: {srcc:.4f}, PLCC: {plcc:.4f}, RMSE: {rmse:.4f}")
     
     # 可视化预测结果
     if config.visualize:
