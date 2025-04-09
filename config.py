@@ -40,6 +40,7 @@ class Config:
         self.freeze_backbone = False  # 是否冻结backbone参数
         self.seed = 42  # 随机种子
         self.save_frequency = 20  # 模型保存频率，每多少个epoch保存一次带epoch信息的模型
+        self.loss_type = 'combined'  # 损失函数类型: 'mse'或'combined'
         self.mse_weight = 1.0  # MSE损失的权重
         self.rank_weight = 0.2  # 排序损失的权重
         self.beta = 0.3  # 自适应边界强度控制因子

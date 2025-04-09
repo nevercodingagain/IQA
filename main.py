@@ -43,6 +43,9 @@ def main():
     parser.add_argument('--save_frequency', type=int, help='模型保存频率')  
     parser.add_argument('--model_path', type=str, help='训练好的模型路径，仅在evaluate模式下需要')  
     parser.add_argument('--visualize', action='store_true', help='是否可视化预测结果，仅在evaluate模式下有效')  
+    # 添加损失函数类型选择参数
+    parser.add_argument('--loss_type', type=str, default='combined', choices=['mse', 'combined'],
+                    help='损失函数类型: mse(均方误差)或combined(MSE+排序损失的组合)')
     # 自适应边界排序损失函数相关参数
     parser.add_argument('--mse_weight', type=float, default=1.0, help='MSE损失的权重')
     parser.add_argument('--rank_weight', type=float, default=0.2, help='排序损失的权重')
@@ -212,7 +215,7 @@ def main():
             )  
         
         # 创建优化器和损失函数  
-        if hasattr(config, 'rank_weight') and config.rank_weight > 0:  
+        if config.loss_type == 'combined':
             # 使用组合损失函数（MSE + 自适应边界排序损失）  
             criterion = CombinedLoss(
                 mse_weight=getattr(config, 'mse_weight', 1.0),  
@@ -345,19 +348,46 @@ def main():
                     }, os.path.join(models_dir, f'model_epoch_{epoch+1}.pth'))  
                     print(f"按照保存频率保存模型，epoch: {epoch+1}")  
         
-        # 训练结束后，在主进程上记录最终结果
-        if rank == 0:
-            # 在测试集上评估最佳模型
-            print(f"\n训练完成，最佳模型来自第{best_epoch+1}个epoch，验证指标总和: {best_val_metric:.4f}")
+        # 训练结束后，在主进程上评估最佳模型在测试集上的表现  
+        if rank == 0:  
+            print(f"\n训练完成，最佳模型来自第{best_epoch+1}个epoch，验证指标总和: {best_val_metric:.4f}")  
+            print("正在加载最佳模型并在测试集上评估...")  
             
-            # 记录最终训练结果到日志文件（追加模式）
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            with open(os.path.join(logs_dir, 'test_results.txt'), 'a') as f:
-                f.write(f"\n[{current_time}] 训练完成 - 最佳模型来自第{best_epoch+1}个epoch\n")
-                f.write(f"最终验证指标总和: {best_val_metric:.4f}\n\n")
+            # 加载最佳模型  
+            checkpoint = torch.load(os.path.join(models_dir, 'best_model.pth'))  
+            model_to_load = model.module if hasattr(model, 'module') else model  
+            model_to_load.load_state_dict(checkpoint['model_state_dict'])  
             
-            # 关闭TensorBoard
-            writer.close()  
+            # 在测试集上评估  
+            test_results = validate_epoch(  
+                model, test_loader, criterion, device, best_epoch, config.num_epochs  
+            )  
+            
+            # 处理返回结果  
+            if isinstance(criterion, CombinedLoss):  
+                test_loss, test_srcc, test_plcc, test_mse_loss, test_rank_loss = test_results  
+            else:  
+                test_loss, test_srcc, test_plcc = test_results  
+                test_mse_loss, test_rank_loss = test_loss, 0.0  
+            
+            test_metric = test_srcc + test_plcc  
+            
+            print(f"测试集性能 - SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}, 总和: {test_metric:.4f}")  
+            
+            # 记录测试集结果到日志文件  
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  
+            with open(os.path.join(logs_dir, 'final_results.txt'), 'w') as f:  
+                f.write(f"[{current_time}] 最终测试结果\n")  
+                f.write(f"最佳模型来自第{best_epoch+1}个epoch (验证集)\n")  
+                f.write(f"验证集 - SRCC: {checkpoint['val_srcc']:.4f}, PLCC: {checkpoint['val_plcc']:.4f}, 总和: {checkpoint['val_metric']:.4f}\n\n")  
+                f.write(f"测试集 - SRCC: {test_srcc:.4f}, PLCC: {test_plcc:.4f}, 总和: {test_metric:.4f}\n")  
+                
+                # 如果使用组合损失，记录额外信息  
+                if isinstance(criterion, CombinedLoss):  
+                    f.write(f"测试集损失详情 - 总损失: {test_loss:.4f}, MSE: {test_mse_loss:.4f}, 排序: {test_rank_loss:.4f}\n")  
+            
+            # 关闭TensorBoard  
+            writer.close() 
     
     elif config.mode == 'evaluate':  
         # 调用原始评估函数  
