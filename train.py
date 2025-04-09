@@ -2,11 +2,14 @@ import torch
 import torch.distributed as dist  
 from scipy.stats import spearmanr, pearsonr  
 from tqdm import tqdm  
+from losses import CombinedLoss  
 
 # 训练一个epoch  
 def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num_epochs=None):  
     model.train()  
     epoch_loss = 0.0  
+    epoch_mse_loss = 0.0  # 用于累积MSE损失
+    epoch_rank_loss = 0.0  # 用于累积排序损失
     all_preds = []  
     all_targets = []  
     
@@ -39,14 +42,25 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
         outputs = model(images)  
         
         # 计算损失  
-        loss = criterion(outputs, targets)  
-        
-        # 反向传播和优化  
-        loss.backward()  
-        optimizer.step()  
-        
-        # 累加损失  
-        epoch_loss += loss.item() * images.size(0)  
+        if isinstance(criterion, CombinedLoss):
+            loss, mse_loss, rank_loss = criterion(outputs, targets)  
+            # 反向传播和优化  
+            loss.backward()  
+            optimizer.step()  
+            
+            # 累加各种损失  
+            batch_size = images.size(0)
+            epoch_loss += loss.item() * batch_size
+            epoch_mse_loss += mse_loss.item() * batch_size
+            epoch_rank_loss += rank_loss.item() * batch_size
+        else:
+            loss = criterion(outputs, targets)  
+            # 反向传播和优化  
+            loss.backward()  
+            optimizer.step()  
+            
+            # 累加损失  
+            epoch_loss += loss.item() * images.size(0)  
         
         # 收集预测和目标值  
         all_preds.extend(outputs.detach().cpu().numpy())  
@@ -59,12 +73,20 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch=None, num
     srcc, _ = spearmanr(all_targets, all_preds)  
     plcc, _ = pearsonr(all_targets, all_preds)  
     
-    return epoch_loss, srcc, plcc  
+    # 如果使用了CombinedLoss，返回额外的损失信息
+    if isinstance(criterion, CombinedLoss):
+        epoch_mse_loss = epoch_mse_loss / dataset_size
+        epoch_rank_loss = epoch_rank_loss / dataset_size
+        return epoch_loss, srcc, plcc, epoch_mse_loss, epoch_rank_loss
+    else:
+        return epoch_loss, srcc, plcc  
 
 # 验证一个epoch  
 def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=None):  
     model.eval()  
     epoch_loss = 0.0  
+    epoch_mse_loss = 0.0  # 用于累积MSE损失
+    epoch_rank_loss = 0.0  # 用于累积排序损失
     all_preds = []  
     all_targets = []  
     
@@ -97,10 +119,17 @@ def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=
             outputs = model(images)  
             
             # 计算损失  
-            loss = criterion(outputs, targets)  
-            
-            # 累加损失  
-            epoch_loss += loss.item() * images.size(0)  
+            if isinstance(criterion, CombinedLoss):
+                loss, mse_loss, rank_loss = criterion(outputs, targets)  
+                # 累加各种损失  
+                batch_size = images.size(0)
+                epoch_loss += loss.item() * batch_size
+                epoch_mse_loss += mse_loss.item() * batch_size
+                epoch_rank_loss += rank_loss.item() * batch_size  
+            else:
+                loss = criterion(outputs, targets)  
+                # 累加损失  
+                epoch_loss += loss.item() * images.size(0)  
             
             # 收集预测和目标值  
             all_preds.extend(outputs.cpu().numpy())  
@@ -113,4 +142,10 @@ def validate_epoch(model, dataloader, criterion, device, epoch=None, num_epochs=
     srcc, _ = spearmanr(all_targets, all_preds)  
     plcc, _ = pearsonr(all_targets, all_preds)  
     
-    return epoch_loss, srcc, plcc
+    # 如果使用了CombinedLoss，返回额外的损失信息
+    if isinstance(criterion, CombinedLoss):
+        epoch_mse_loss = epoch_mse_loss / dataset_size
+        epoch_rank_loss = epoch_rank_loss / dataset_size
+        return epoch_loss, srcc, plcc, epoch_mse_loss, epoch_rank_loss
+    else:
+        return epoch_loss, srcc, plcc

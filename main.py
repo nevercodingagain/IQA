@@ -10,6 +10,7 @@ from config import get_train_config, get_eval_config
 from dataset_utils import get_data_transforms, KonIQ10kDataset  
 from model.models import ViTForIQA, ResNetViTForIQA, ResNetViTConcatForIQA, SwinForIQA
 from train import train_epoch, validate_epoch  
+from losses import MSELoss, AdaptiveBoundaryRankingLoss, CombinedLoss  
 
 def main():  
     # 创建命令行参数解析器  
@@ -42,6 +43,11 @@ def main():
     parser.add_argument('--save_frequency', type=int, help='模型保存频率')  
     parser.add_argument('--model_path', type=str, help='训练好的模型路径，仅在evaluate模式下需要')  
     parser.add_argument('--visualize', action='store_true', help='是否可视化预测结果，仅在evaluate模式下有效')  
+    # 自适应边界排序损失函数相关参数
+    parser.add_argument('--mse_weight', type=float, default=1.0, help='MSE损失的权重')
+    parser.add_argument('--rank_weight', type=float, default=1.0, help='排序损失的权重')
+    parser.add_argument('--beta', type=float, default=0.3, help='自适应边界强度控制因子')
+    parser.add_argument('--gamma', type=float, default=0.1, help='自适应边界非线性调整因子')  
     
     args = parser.parse_args()  
     
@@ -206,7 +212,21 @@ def main():
             )  
         
         # 创建优化器和损失函数  
-        criterion = torch.nn.MSELoss()  
+        if hasattr(config, 'rank_weight') and config.rank_weight > 0:  
+            # 使用组合损失函数（MSE + 自适应边界排序损失）  
+            criterion = CombinedLoss(
+                mse_weight=getattr(config, 'mse_weight', 1.0),  
+                rank_weight=getattr(config, 'rank_weight', 1.0),  
+                beta=getattr(config, 'beta', 0.3),  
+                gamma=getattr(config, 'gamma', 0.1)  
+            )  
+            print(f"使用组合损失函数: MSE权重={getattr(config, 'mse_weight', 1.0)}, 排序权重={getattr(config, 'rank_weight', 1.0)}")  
+            print(f"自适应边界参数: beta={getattr(config, 'beta', 0.3)}, gamma={getattr(config, 'gamma', 0.1)}")  
+        else:  
+            # 使用传统的MSE损失  
+            criterion = MSELoss()  
+            print("使用传统MSE损失函数")  
+            
         optimizer = torch.optim.Adam(  
             model.parameters(),   
             lr=config.learning_rate,   
@@ -240,14 +260,29 @@ def main():
                 train_sampler.set_epoch(epoch)  
             
             # 训练一个epoch  
-            train_loss, train_srcc, train_plcc = train_epoch(  
+            train_results = train_epoch(  
                 model, train_loader, criterion, optimizer, device, epoch, config.num_epochs  
-            )  
+            )
+            
+            # 处理返回结果
+            if isinstance(criterion, CombinedLoss):
+                train_loss, train_srcc, train_plcc, train_mse_loss, train_rank_loss = train_results
+            else:
+                train_loss, train_srcc, train_plcc = train_results
+                train_mse_loss, train_rank_loss = train_loss, 0.0
             
             # 验证  
-            val_loss, val_srcc, val_plcc = validate_epoch(  
+            val_results = validate_epoch(  
                 model, val_loader, criterion, device, epoch, config.num_epochs  
-            )  
+            )
+            
+            # 处理返回结果
+            if isinstance(criterion, CombinedLoss):
+                val_loss, val_srcc, val_plcc, val_mse_loss, val_rank_loss = val_results
+            else:
+                val_loss, val_srcc, val_plcc = val_results
+                val_mse_loss, val_rank_loss = val_loss, 0.0
+            
             
             # 更新学习率  
             scheduler.step(val_loss)  
@@ -260,6 +295,13 @@ def main():
                 writer.add_scalar('SRCC/val', val_srcc, epoch)  
                 writer.add_scalar('PLCC/train', train_plcc, epoch)  
                 writer.add_scalar('PLCC/val', val_plcc, epoch)  
+                
+                # 如果使用组合损失函数，记录额外的损失信息
+                if isinstance(criterion, CombinedLoss):
+                    writer.add_scalar('MSE_Loss/train', train_mse_loss, epoch)
+                    writer.add_scalar('MSE_Loss/val', val_mse_loss, epoch)
+                    writer.add_scalar('Rank_Loss/train', train_rank_loss, epoch)
+                    writer.add_scalar('Rank_Loss/val', val_rank_loss, epoch)  
                 
                 print(f"Epoch {epoch+1}/{config.num_epochs} | "  
                       f"Train Loss: {train_loss:.4f}, SRCC: {train_srcc:.4f}, PLCC: {train_plcc:.4f} | "  
